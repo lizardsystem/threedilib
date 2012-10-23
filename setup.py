@@ -10,6 +10,8 @@ long_description = '\n\n'.join([
 
 install_requires = [
     'setuptools',
+    'lizard_raster',
+    'netcdf4',
     ],
 
 tests_require = [
@@ -17,13 +19,13 @@ tests_require = [
 
 setup(name='threedilib',
       version=version,
-      description="TODO",
+      description="A library to work with 3Di",
       long_description=long_description,
       # Get strings from http://www.python.org/pypi?%3Aaction=list_classifiers
       classifiers=[],
       keywords=[],
-      author='TODO',
-      author_email='TODO@nelen-schuurmans.nl',
+      author='Jack Ha',
+      author_email='jack.ha@nelen-schuurmans.nl',
       url='',
       license='GPL',
       packages=['threedilib'],
