@@ -14,6 +14,77 @@ from PIL import Image
 
 #from lizard_raster.raster import get_ahn_indices
 from lizard_raster import models
+import logging
+
+
+logger = logging.getLogger(__name__)
+
+subgrid_root = "/home/jack/3di-subgrid/bin"
+subgrid_exe = os.path.join(subgrid_root, "subgridf90")
+copy_to_work_dir = [
+    'subgrid.ini',
+    'unstruc.hlp',
+    'ISOCOLOUR.hls',
+    'land.rgb',
+    'water.rgb',
+    'interception.rgb',
+    'land.zrgb',
+    'interact.ini',
+    'UNSA_SIM.INP',
+    'ROOT_SIM.INP',
+    'CROP_OW.PRN',
+    'CROPFACT',
+    'EVAPOR.GEM',
+    ]
+
+
+def setup_3di(full_path, source_files_dir=subgrid_root):
+    """
+    Copies default files to 3di work folder
+    """
+    logger.info('Setting up working directory in %s...' % full_path)
+
+    # Copy default files
+    for filename in copy_to_work_dir:
+        dst_filename = os.path.join(full_path, filename)
+        if not os.path.exists(dst_filename):
+            src_filename = os.path.join(source_files_dir, filename)
+            logger.info('Copying %s from defaults...' % filename)
+            copyfile(src_filename, dst_filename)
+        else:
+            logger.info('%s exists, ok.' % filename)
+    # TODO: Extra checks, update files, etc.
+    # subgrid.ini
+
+
+def setup_and_run_3di(
+    mdu_full_path,
+    skip_if_results_available=True,
+    source_files_dir=subgrid_root,
+    subgrid_exe=subgrid_exe):
+    """This wil produce a file located on result_filename.
+
+    You are responsible for moving the file away.
+    """
+    full_path = os.path.dirname(mdu_full_path)
+    result_filename = os.path.join(full_path, 'subgrid_map.nc')
+
+    # Go to working dir
+    os.chdir(full_path)
+
+    if os.path.exists(result_filename) and skip_if_results_available:
+        print 'skipping calculation, already calculated.'
+    else:
+        setup_3di(full_path, source_files_dir)
+        # Run
+        os.system('%s %s' % (subgrid_exe, mdu_full_path))
+
+        # Results in full_path + subgrid_map.nc
+        # *.tim is also produced.
+
+    # # process results
+    # process_3di_nc(result_filename)
+    return result_filename
 
 
 def process_3di_nc(filename):
@@ -48,17 +119,22 @@ def process_3di_nc(filename):
     rootgrp.close()
 
 
-def post_process_3di(full_path):
+def post_process_3di(full_path, dst_basefilename='_step%d.png'):
     """
     Simple version: do not use AHN tiles to do the calculation
 
     This method is quite fast, but the result has squares.
+
+    Input: full path of the .nc netcdf file
+
+    Output: png files on disk (specified by dst_basefilename) and a
+    dictionary with timesteps and the corresponding files.
     """
     print 'post processing %s...' % full_path
     data = Data(full_path)  # NetCDF data
     #process_3di_nc(full_path)
 
-    # TODO: Find out which AHN tiles
+    result_filenames = {}
 
     for timestep in range(data.num_timesteps):
         print('Working on timestep %d...' % timestep)
@@ -68,7 +144,6 @@ def post_process_3di(full_path):
         # testing
         #print ', '.join([i.bladnr for i in get_ahn_indices(ds_3di)])
 
-        filename_base = '_step%d' % timestep
 
         cdict = {
             'red': ((0.0, 51./256, 51./256),
@@ -88,13 +163,15 @@ def post_process_3di(full_path):
         rgba = colormap(normalize(ma_3di), bytes=True)
         #rgba[:,:,3] = np.where(rgba[:,:,0], 153 , 0)
 
-        Image.fromarray(rgba).save(filename_base + '.png', 'PNG')
+        dst_filename = dst_basefilename % timestep
+        Image.fromarray(rgba).save(dst_filename, 'PNG')
 
         #write_pgw(tmp_base + '.pgw', extent)
-
+        result_filenames[timestep] = dst_filename
 
         # gdal.GetDriverByName('Gtiff').CreateCopy(filename_base + '.tif', ds_3di)
         # gdal.GetDriverByName('AAIGrid').CreateCopy(filename_base + '.asc', ds_3di)
+    return result_filenames
 
 
 def post_process_detailed_3di(full_path):
