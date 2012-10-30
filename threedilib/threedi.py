@@ -119,7 +119,27 @@ def process_3di_nc(filename):
     rootgrp.close()
 
 
-def post_process_3di(full_path, dst_basefilename='_step%d.png'):
+def write_pgw(name, ds):
+    """write pgw file:
+
+    0.5
+    0.000
+    0.000
+    -0.5
+    <x ul corner>
+    <y ul corner>
+    """
+    # (202157.0, 30.0, 0.0, 509883.0, 0.0, -30.0)
+    transform = ds.GetGeoTransform()
+
+    f = open(name, 'w')
+    f.write('%f\n0.000\n0.000\n%f\n' % (transform[1], transform[5]))
+    f.write('%f\n%f' % (transform[0], transform[3]))
+    f.close()
+    return
+
+
+def post_process_3di(full_path, dst_basefilename='_step%d'):
     """
     Simple version: do not use AHN tiles to do the calculation
 
@@ -127,23 +147,22 @@ def post_process_3di(full_path, dst_basefilename='_step%d.png'):
 
     Input: full path of the .nc netcdf file
 
-    Output: png files on disk (specified by dst_basefilename) and a
-    dictionary with timesteps and the corresponding files.
+    Output: png+pgw files on disk (specified by dst_basefilename).
     """
     print 'post processing %s...' % full_path
     data = Data(full_path)  # NetCDF data
     #process_3di_nc(full_path)
 
-    result_filenames = {}
+    #result_filenames = {}
 
     for timestep in range(data.num_timesteps):
         print('Working on timestep %d...' % timestep)
 
         ma_3di = data.to_masked_array(data.depth, timestep)
         ds_3di = to_dataset(ma_3di, data.geotransform)
+        #print ds_3di.GetGeoTransform()
         # testing
         #print ', '.join([i.bladnr for i in get_ahn_indices(ds_3di)])
-
 
         cdict = {
             'red': ((0.0, 51./256, 51./256),
@@ -164,14 +183,15 @@ def post_process_3di(full_path, dst_basefilename='_step%d.png'):
         #rgba[:,:,3] = np.where(rgba[:,:,0], 153 , 0)
 
         dst_filename = dst_basefilename % timestep
-        Image.fromarray(rgba).save(dst_filename, 'PNG')
+        Image.fromarray(rgba).save(dst_filename + '.png', 'PNG')
+        write_pgw(dst_filename + '.pgw', ds_3di)
 
         #write_pgw(tmp_base + '.pgw', extent)
-        result_filenames[timestep] = dst_filename
+        #result_filenames[timestep] = dst_filename
 
         # gdal.GetDriverByName('Gtiff').CreateCopy(filename_base + '.tif', ds_3di)
         # gdal.GetDriverByName('AAIGrid').CreateCopy(filename_base + '.asc', ds_3di)
-    return result_filenames
+    return data.num_timesteps #result_filenames
 
 
 def post_process_detailed_3di(full_path):
