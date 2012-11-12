@@ -88,7 +88,7 @@ def setup_and_run_3di(
 
 
 def process_3di_nc(filename):
-    """Process result netcdf file"""
+    """Process result netcdf file, not used because of Data object from Arjan."""
 
     #from netCDF4 import Dataset
     rootgrp = Dataset(filename, 'r', format='NETCDF4')
@@ -165,15 +165,15 @@ def post_process_3di(full_path, dst_basefilename='_step%d'):
         #print ', '.join([i.bladnr for i in get_ahn_indices(ds_3di)])
 
         cdict = {
-            'red': ((0.0, 51./256, 51./256),
-                    (0.5, 237./256, 237./256),
-                    (1.0, 83./256, 83./256)),
-            'green': ((0.0, 114./256, 114./256),
-                      (0.5, 245./256, 245./256),
-                      (1.0, 83./256, 83./256)),
-            'blue': ((0.0, 54./256, 54./256),
-                     (0.5, 170./256, 170./256),
-                     (1.0, 83./256, 83./256)),
+            'red': ((0.0, 170./256, 170./256),
+                    (0.5, 65./256, 65./256),
+                    (1.0, 4./256, 4./256)),
+            'green': ((0.0, 200./256, 200./256),
+                      (0.5, 120./256, 120./256),
+                      (1.0, 65./256, 65./256)),
+            'blue': ((0.0, 255./256, 255./256),
+                     (0.5, 221./256, 221./256),
+                     (1.0, 176./256, 176./256)),
             }
         colormap = mpl.colors.LinearSegmentedColormap('something', cdict, N=1024)
 
