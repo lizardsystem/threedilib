@@ -5,7 +5,7 @@ Changelog of threedilib
 0.3 (unreleased)
 ----------------
 
-- Nothing changed yet.
+- Added detailed post process images, it uses lizard-raster.
 
 
 0.2 (2012-11-12)

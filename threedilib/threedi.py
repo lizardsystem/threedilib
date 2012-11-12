@@ -10,7 +10,8 @@ from netCDF4 import Dataset
 from osgeo import gdal
 import matplotlib as mpl
 from PIL import Image
-
+from read_3di import to_masked_array
+from django.core.cache import cache
 
 #from lizard_raster.raster import get_ahn_indices
 from lizard_raster import models
@@ -194,41 +195,79 @@ def post_process_3di(full_path, dst_basefilename='_step%d'):
     return data.num_timesteps #result_filenames
 
 
-def post_process_detailed_3di(full_path):
+def post_process_detailed_3di(full_path, dst_basefilename='_step%d'):
     """
     Make detailed images using a 0.5m height map.
 
     TODO: implement this
     """
-    print 'post processing %s...' % full_path
+    print 'post processing (detailed)%s...' % full_path
     data = Data(full_path)  # NetCDF data
+    #process_3di_nc(full_path)
 
-    # TODO: Find out which AHN tiles
+    #result_filenames = {}
+    ahn_ma = {}  # A place to store the ahn tiles. Let's hope 150 tiles will fit into memory.
 
     for timestep in range(data.num_timesteps):
         print('Working on timestep %d...' % timestep)
 
         ma_3di = data.to_masked_array(data.depth, timestep)
-        ds_3di = to_dataset(ma_3di, data.geotransform)
-        # testing
-        ahn_indices = models.AhnIndex.get_ahn_indices(ds_3di)
-        print ahn_indices
-        for ahn_index in ahn_indices:
-            print 'reading ahn data... %s' % ahn_index
-            ahn_index.get_ds()
 
-        filename_base = '_step%d' % timestep
+        # TODO: clip on area only
+
+        ds_3di = to_dataset(ma_3di, data.geotransform)
+        #print ds_3di.GetGeoTransform()
+        # testing
+        #print ', '.join([i.bladnr for i in get_ahn_indices(ds_3di)])
+
+        # Find out which ahn tiles
+        print "get ahn indices..."
+        ahn_indices = models.AhnIndex.get_ahn_indices(ds_3di)
+
+        print 'number of ahn tiles: %d' % len(ahn_indices)
+        print ', '.join([str(i) for i in ahn_indices])
+        for ahn_count, ahn_index in enumerate(ahn_indices):  # can be 150!
+            if ahn_index.bladnr not in ahn_ma:
+                ahn_key = 'ahn_220::%s' % ahn_index.bladnr
+                new_ahn_ma = cache.get(ahn_key)
+                if new_ahn_ma is None:
+                    print 'reading ahn data...(%d) %s' % (ahn_count, str(ahn_index))
+                    ahn_ds = ahn_index.get_ds()
+                    ahn_temp = to_masked_array(ahn_ds)
+                    new_ahn_ma = ahn_temp[0::data.XS*2, 0::data.YS*2].flatten()  # make it smaller
+                    cache.set(ahn_key, new_ahn_ma, 86400)
+                else:
+                    print 'from cache: %s' % str(ahn_index)
+                    cache.set(ahn_key, new_ahn_ma, 86400)  # re-cache
+
+                ahn_ma[ahn_index.bladnr] = new_ahn_ma
+
+            # Create crazy stuff:
+            # depth = big image with ma/ds_3di - height
+            # subtract ahn data
+            result_index = data.to_index(int(ahn_index.x), int(ahn_index.x + 1000),
+                                         int(ahn_index.y), int(ahn_index.y + 1250))
+
+            try:
+                print 'trying subtraction'
+                ma_3di[result_index] -= ahn_ma[ahn_index.bladnr]
+            except:
+                print 'problem in tile ahn_index %s in timestep %d ' % (ahn_index.bladnr, timestep)
+            #print result_index
+
+        # depth = max(0, depth)
+        ma_3di = np.amax(ma_3di, 0)
 
         cdict = {
-            'red': ((0.0, 51./256, 51./256),
-                    (0.5, 237./256, 237./256),
-                    (1.0, 83./256, 83./256)),
-            'green': ((0.0, 114./256, 114./256),
-                      (0.5, 245./256, 245./256),
-                      (1.0, 83./256, 83./256)),
-            'blue': ((0.0, 54./256, 54./256),
-                     (0.5, 170./256, 170./256),
-                     (1.0, 83./256, 83./256)),
+            'red': ((0.0, 170./256, 170./256),
+                    (0.5, 65./256, 65./256),
+                    (1.0, 4./256, 4./256)),
+            'green': ((0.0, 200./256, 200./256),
+                      (0.5, 120./256, 120./256),
+                      (1.0, 65./256, 65./256)),
+            'blue': ((0.0, 255./256, 255./256),
+                     (0.5, 221./256, 221./256),
+                     (1.0, 176./256, 176./256)),
             }
         colormap = mpl.colors.LinearSegmentedColormap('something', cdict, N=1024)
 
@@ -237,6 +276,13 @@ def post_process_detailed_3di(full_path):
         rgba = colormap(normalize(ma_3di), bytes=True)
         #rgba[:,:,3] = np.where(rgba[:,:,0], 153 , 0)
 
-        Image.fromarray(rgba).save(filename_base + '.png', 'PNG')
+        dst_filename = dst_basefilename % timestep
+        Image.fromarray(rgba).save(dst_filename + '.png', 'PNG')
+        write_pgw(dst_filename + '.pgw', ds_3di)
 
         #write_pgw(tmp_base + '.pgw', extent)
+        #result_filenames[timestep] = dst_filename
+
+        # gdal.GetDriverByName('Gtiff').CreateCopy(filename_base + '.tif', ds_3di)
+        # gdal.GetDriverByName('AAIGrid').CreateCopy(filename_base + '.asc', ds_3di)
+    return data.num_timesteps #result_filenames
