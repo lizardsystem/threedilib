@@ -2,7 +2,7 @@ Changelog of threedilib
 ===================================================
 
 
-0.2 (unreleased)
+0.2 (2012-11-12)
 ----------------
 
 - Changed colors of post process netcdf.
