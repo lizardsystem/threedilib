@@ -31,8 +31,8 @@ class Data(object):
         self.Y1 = self.y1.max()
 
         # Grid steps
-        self.XS = (self.x1 - self.x0).min()
-        self.YS = (self.y1 - self.y0).min()
+        self.XS = (self.x1 - self.x0).min() / 2
+        self.YS = (self.y1 - self.y0).min() / 2
 
         # Grid size
         self.NY = (self.Y1 - self.Y0) / self.YS

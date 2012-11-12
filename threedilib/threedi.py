@@ -12,6 +12,7 @@ import matplotlib as mpl
 from PIL import Image
 from read_3di import to_masked_array
 from django.core.cache import cache
+import numpy as np
 
 #from lizard_raster.raster import get_ahn_indices
 from lizard_raster import models
@@ -237,8 +238,8 @@ def post_process_detailed_3di(full_path, dst_basefilename='_step%d'):
                     new_ahn_ma = ahn_temp[0::data.XS*2, 0::data.YS*2].flatten()  # make it smaller
                     cache.set(ahn_key, new_ahn_ma, 86400)
                 else:
-                    print 'from cache: %s' % str(ahn_index)
-                    cache.set(ahn_key, new_ahn_ma, 86400)  # re-cache
+                    #print 'from cache: %s' % str(ahn_index)
+                    cache.set(ahn_key, new_ahn_ma, 864000)  # re-cache
 
                 ahn_ma[ahn_index.bladnr] = new_ahn_ma
 
@@ -249,14 +250,15 @@ def post_process_detailed_3di(full_path, dst_basefilename='_step%d'):
                                          int(ahn_index.y), int(ahn_index.y + 1250))
 
             try:
-                print 'trying subtraction'
+                #print 'trying subtraction'
                 ma_3di[result_index] -= ahn_ma[ahn_index.bladnr]
             except:
                 print 'problem in tile ahn_index %s in timestep %d ' % (ahn_index.bladnr, timestep)
             #print result_index
 
         # depth = max(0, depth)
-        ma_3di = np.amax(ma_3di, 0)
+        #ma_3di = np.amax(ma_3di, 0)
+        ma_3di[np.ma.less(ma_3di, 0)] = 0
 
         cdict = {
             'red': ((0.0, 170./256, 170./256),
@@ -271,7 +273,7 @@ def post_process_detailed_3di(full_path, dst_basefilename='_step%d'):
             }
         colormap = mpl.colors.LinearSegmentedColormap('something', cdict, N=1024)
 
-        min_value, max_value = 0.0, 4.0
+        min_value, max_value = 0.0, 2.0
         normalize = mpl.colors.Normalize(vmin=min_value, vmax=max_value)
         rgba = colormap(normalize(ma_3di), bytes=True)
         #rgba[:,:,3] = np.where(rgba[:,:,0], 153 , 0)
