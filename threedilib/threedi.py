@@ -265,22 +265,19 @@ def post_process_detailed_3di(full_path, dst_basefilename='_step%d', region=None
             region_geo = (RD, data.geotransform) #raster.get_geo(ds_3di)
             #print region.geom.wkb
             region_mask = 1 - raster.get_mask(region.geom, ma_3di.shape, region_geo)
-        # TODO: clip on area only
 
-        #print ds_3di.GetGeoTransform()
-        # testing
         #print ', '.join([i.bladnr for i in get_ahn_indices(ds_3di)])
 
         # Find out which ahn tiles
         if region_polygon is not None:
-            print "get ahn indices from polygon..."
+            #print "get ahn indices from polygon..."
             ahn_indices = models.AhnIndex.get_ahn_indices(polygon=region_polygon)
         else:
-            print "get ahn indices from ds..."
+            #print "get ahn indices from ds..."
             ahn_indices = models.AhnIndex.get_ahn_indices(ds=ds_3di)
 
-        print 'number of ahn tiles: %d' % len(ahn_indices)
-        print ', '.join([str(i) for i in ahn_indices])
+        #print 'number of ahn tiles: %d' % len(ahn_indices)
+        #print ', '.join([str(i) for i in ahn_indices])
 
         for ahn_count, ahn_index in enumerate(ahn_indices):  # can be 150! -> is now 15
             if ahn_index.bladnr not in ahn_ma:
