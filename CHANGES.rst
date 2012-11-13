@@ -2,7 +2,7 @@ Changelog of threedilib
 ===================================================
 
 
-0.4 (unreleased)
+0.4 (2012-11-13)
 ----------------
 
 - Nothing changed yet.
