@@ -6,8 +6,13 @@ import os
 from read_3di import to_dataset
 from nc import Data
 
+from pyproj import Proj
+from pyproj import transform
+
 from netCDF4 import Dataset
+
 from osgeo import gdal
+
 import matplotlib as mpl
 from PIL import Image
 from read_3di import to_masked_array
@@ -16,6 +21,7 @@ import numpy as np
 
 #from lizard_raster.raster import get_ahn_indices
 from lizard_raster import models
+from lizard_raster import raster
 import logging
 
 
@@ -38,6 +44,27 @@ copy_to_work_dir = [
     'CROPFACT',
     'EVAPOR.GEM',
     ]
+
+
+# util functions from lizard-map
+# Rijksdriehoeks stelsel.
+RD = ("+proj=sterea +lat_0=52.15616055555555 +lon_0=5.38763888888889 "
+      "+k=0.999908 +x_0=155000 +y_0=463000 +ellps=bessel "
+      "+towgs84=565.237,50.0087,465.658,-0.406857,0.350733,-1.87035,4.0812 "
+      "+units=m +no_defs")
+GOOGLE = ('+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 '
+          '+lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m '
+          '+nadgrids=@null +no_defs +over')
+WGS84 = ('+proj=latlong +datum=WGS84')
+
+rd_projection = Proj(RD)
+google_projection = Proj(GOOGLE)
+wgs84_projection = Proj(WGS84)
+
+
+def wgs84_to_rd(x, y):
+    """Return WGS84 coordinates from RD coordinates. From lizard-map"""
+    return transform(wgs84_projection, rd_projection, x, y)
 
 
 def setup_3di(full_path, source_files_dir=subgrid_root):
@@ -196,11 +223,11 @@ def post_process_3di(full_path, dst_basefilename='_step%d'):
     return data.num_timesteps #result_filenames
 
 
-def post_process_detailed_3di(full_path, dst_basefilename='_step%d'):
+def post_process_detailed_3di(full_path, dst_basefilename='_step%d', region=None, region_extent=None):
     """
     Make detailed images using a 0.5m height map.
 
-    TODO: implement this
+    region_extent = None, or (x0, y0, x1, y1) in RD
     """
     print 'post processing (detailed)%s...' % full_path
     data = Data(full_path)  # NetCDF data
@@ -209,56 +236,84 @@ def post_process_detailed_3di(full_path, dst_basefilename='_step%d'):
     #result_filenames = {}
     ahn_ma = {}  # A place to store the ahn tiles. Let's hope 150 tiles will fit into memory.
 
+    # Determine optional region polygon instead of whole extent
+    #print region_extent
+    region_mask = None
+    if region:
+        # (Over)write region_extent
+        region_extent_lonlat = region.geom.extent  # beware: in WGS84
+        x0, y0 = wgs84_to_rd(region_extent_lonlat[0], region_extent_lonlat[1])
+        x1, y1 = wgs84_to_rd(region_extent_lonlat[2], region_extent_lonlat[3])
+        region_extent = (x0, y0, x1, y1)
+
+    region_polygon = None
+    if region_extent is not None:
+        region_polygon = raster.polygon_from_extent(region_extent)
+    #s = Scenario
+    #s.breaches.all()[0].region.geom.extent
+
     for timestep in range(data.num_timesteps):
         print('Working on timestep %d...' % timestep)
 
-        ma_3di = data.to_masked_array(data.depth, timestep)
-
-        # TODO: clip on area only
+        ma_3di = data.to_masked_array(data.level, timestep)
+        ma_result = np.ma.zeros((data.NY, data.NX), fill_value=-999)
 
         ds_3di = to_dataset(ma_3di, data.geotransform)
+
+        if region is not None and region_mask is None:
+            # Fill region_mask
+            region_geo = (RD, data.geotransform) #raster.get_geo(ds_3di)
+            #print region.geom.wkb
+            region_mask = 1 - raster.get_mask(region.geom, ma_3di.shape, region_geo)
+        # TODO: clip on area only
+
         #print ds_3di.GetGeoTransform()
         # testing
         #print ', '.join([i.bladnr for i in get_ahn_indices(ds_3di)])
 
         # Find out which ahn tiles
-        print "get ahn indices..."
-        ahn_indices = models.AhnIndex.get_ahn_indices(ds_3di)
+        if region_polygon is not None:
+            print "get ahn indices from polygon..."
+            ahn_indices = models.AhnIndex.get_ahn_indices(polygon=region_polygon)
+        else:
+            print "get ahn indices from ds..."
+            ahn_indices = models.AhnIndex.get_ahn_indices(ds=ds_3di)
 
         print 'number of ahn tiles: %d' % len(ahn_indices)
         print ', '.join([str(i) for i in ahn_indices])
-        for ahn_count, ahn_index in enumerate(ahn_indices):  # can be 150!
+
+        for ahn_count, ahn_index in enumerate(ahn_indices):  # can be 150! -> is now 15
             if ahn_index.bladnr not in ahn_ma:
-                ahn_key = 'ahn_220::%s' % ahn_index.bladnr
+                ahn_key = 'ahn_220::%s::%02f::%02f:' % (ahn_index.bladnr, data.XS, data.YS)
                 new_ahn_ma = cache.get(ahn_key)
                 if new_ahn_ma is None:
                     print 'reading ahn data...(%d) %s' % (ahn_count, str(ahn_index))
                     ahn_ds = ahn_index.get_ds()
                     ahn_temp = to_masked_array(ahn_ds)
-                    new_ahn_ma = ahn_temp[0::data.XS*2, 0::data.YS*2].flatten()  # make it smaller
+                    #print data.XS, data.YS, data.NX, data.NY
+                    new_ahn_ma = ahn_temp[0::data.YS*2, 0::data.XS*2].flatten()  # make it smaller and flatten
+                    #print ahn_temp[0::data.YS*2, 0::data.XS*2].shape
                     cache.set(ahn_key, new_ahn_ma, 86400)
                 else:
                     #print 'from cache: %s' % str(ahn_index)
-                    cache.set(ahn_key, new_ahn_ma, 864000)  # re-cache
+                    cache.set(ahn_key, new_ahn_ma, 86400)  # re-cache
 
                 ahn_ma[ahn_index.bladnr] = new_ahn_ma
 
             # Create crazy stuff:
             # depth = big image with ma/ds_3di - height
             # subtract ahn data
-            result_index = data.to_index(int(ahn_index.x), int(ahn_index.x + 1000),
-                                         int(ahn_index.y), int(ahn_index.y + 1250))
+            result_index = data.to_index(int(ahn_index.x - 500), int(ahn_index.x + 500),
+                                         int(ahn_index.y - 625), int(ahn_index.y + 625))
+            # Water height minus AHN height = depth
+            ma_result[result_index] = ma_3di[result_index] - ahn_ma[ahn_index.bladnr]
 
-            try:
-                #print 'trying subtraction'
-                ma_3di[result_index] -= ahn_ma[ahn_index.bladnr]
-            except:
-                print 'problem in tile ahn_index %s in timestep %d ' % (ahn_index.bladnr, timestep)
-            #print result_index
-
-        # depth = max(0, depth)
-        #ma_3di = np.amax(ma_3di, 0)
-        ma_3di[np.ma.less(ma_3di, 0)] = 0
+        # make all values < 0 transparent
+        #ma_result[np.ma.less(ma_3di, 0)] = np.ma.masked
+        if region_mask is not None:
+            #print np.ma.amax(region_mask)
+            ma_result.mask = region_mask
+        ma_result = np.ma.masked_where(ma_result <= 0, ma_result)
 
         cdict = {
             'red': ((0.0, 170./256, 170./256),
@@ -273,9 +328,9 @@ def post_process_detailed_3di(full_path, dst_basefilename='_step%d'):
             }
         colormap = mpl.colors.LinearSegmentedColormap('something', cdict, N=1024)
 
-        min_value, max_value = 0.0, 2.0
+        min_value, max_value = 0.0, 1.0
         normalize = mpl.colors.Normalize(vmin=min_value, vmax=max_value)
-        rgba = colormap(normalize(ma_3di), bytes=True)
+        rgba = colormap(normalize(ma_result), bytes=True)
         #rgba[:,:,3] = np.where(rgba[:,:,0], 153 , 0)
 
         dst_filename = dst_basefilename % timestep
