@@ -4,7 +4,7 @@ import numpy
 
 class Data(object):
 
-    def __init__(self, datafile):
+    def __init__(self, datafile, step_divider=1, gridsize=None):
         ds = netCDF4.Dataset(datafile, 'r', format='NETCDF4')
 
         self.ds = ds
@@ -25,14 +25,20 @@ class Data(object):
         self.y = ds.variables['FlowElem_ycc'][:]
 
         # Master contour
-        self.X0 = self.x0.min()
-        self.X1 = self.x1.max()
-        self.Y0 = self.y0.min()
-        self.Y1 = self.y1.max()
+        self.X0 = self.x0.min() // 1000 * 1000
+        self.X1 = numpy.ceil(self.x1.max() / 1000.) * 1000
+        self.Y0 = self.y0.min() // 1250 * 1250
+        self.Y1 = numpy.ceil(self.y1.max() / 1250.) * 1250
 
         # Grid steps
-        self.XS = (self.x1 - self.x0).min() / 2
-        self.YS = (self.y1 - self.y0).min() / 2
+        if gridsize is None:
+            print 'native gridsize x: %d' % (self.x1 - self.x0).min()
+            print 'native gridsize y: %d' % (self.y1 - self.y0).min()
+            self.XS = (self.x1 - self.x0).min() / step_divider
+            self.YS = (self.y1 - self.y0).min() / step_divider
+        else:
+            self.XS = gridsize
+            self.YS = gridsize
 
         # Grid size
         self.NY = (self.Y1 - self.Y0) / self.YS

@@ -5,7 +5,7 @@ Changelog of threedilib
 0.5 (unreleased)
 ----------------
 
-- Nothing changed yet.
+- Made gridsize more flexible.
 
 
 0.4 (2012-11-13)

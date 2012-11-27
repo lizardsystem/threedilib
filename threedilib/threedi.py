@@ -5,6 +5,8 @@ import os
 
 from read_3di import to_dataset
 from nc import Data
+import traceback
+import sys
 
 from pyproj import Proj
 from pyproj import transform
@@ -223,14 +225,16 @@ def post_process_3di(full_path, dst_basefilename='_step%d'):
     return data.num_timesteps #result_filenames
 
 
-def post_process_detailed_3di(full_path, dst_basefilename='_step%d', region=None, region_extent=None):
+def post_process_detailed_3di(
+    full_path, dst_basefilename='_step%d', region=None, region_extent=None, gridsize=None,
+    gridsize_divider=2):
     """
     Make detailed images using a 0.5m height map.
 
     region_extent = None, or (x0, y0, x1, y1) in RD
     """
     print 'post processing (detailed)%s...' % full_path
-    data = Data(full_path)  # NetCDF data
+    data = Data(full_path, step_divider=gridsize_divider, gridsize=gridsize)  # NetCDF data
     #process_3di_nc(full_path)
 
     #result_filenames = {}
@@ -255,7 +259,8 @@ def post_process_detailed_3di(full_path, dst_basefilename='_step%d', region=None
     for timestep in range(data.num_timesteps):
         print('Working on timestep %d...' % timestep)
 
-        ma_3di = data.to_masked_array(data.level, timestep)
+        ma_3di = data.to_masked_array(data.level, timestep)  # The netcdf result file
+        #print data.NY, data.NX, data.geotransform
         ma_result = np.ma.zeros((data.NY, data.NX), fill_value=-999)
 
         ds_3di = to_dataset(ma_3di, data.geotransform)
@@ -281,14 +286,15 @@ def post_process_detailed_3di(full_path, dst_basefilename='_step%d', region=None
 
         for ahn_count, ahn_index in enumerate(ahn_indices):  # can be 150! -> is now 15
             if ahn_index.bladnr not in ahn_ma:
-                ahn_key = 'ahn_220::%s::%02f::%02f:' % (ahn_index.bladnr, data.XS, data.YS)
+                ahn_key = 'ahn_220::%s::%02f::%02f::::' % (ahn_index.bladnr, data.XS, data.YS)
                 new_ahn_ma = cache.get(ahn_key)
                 if new_ahn_ma is None:
                     print 'reading ahn data...(%d) %s' % (ahn_count, str(ahn_index))
                     ahn_ds = ahn_index.get_ds()
                     ahn_temp = to_masked_array(ahn_ds)
                     #print data.XS, data.YS, data.NX, data.NY
-                    new_ahn_ma = ahn_temp[0::data.YS*2, 0::data.XS*2].flatten()  # make it smaller and flatten
+                    new_ahn_ma = ahn_temp[0::data.YS*2,  # *2 because every step is 0.5 meters.
+                                          0::data.XS*2].flatten()  # make it small as needed and flatten
                     #print ahn_temp[0::data.YS*2, 0::data.XS*2].shape
                     cache.set(ahn_key, new_ahn_ma, 86400)
                 else:
@@ -303,8 +309,21 @@ def post_process_detailed_3di(full_path, dst_basefilename='_step%d', region=None
             result_index = data.to_index(int(ahn_index.x - 500), int(ahn_index.x + 500),
                                          int(ahn_index.y - 625), int(ahn_index.y + 625))
             # Water height minus AHN height = depth
-            ma_result[result_index] = ma_3di[result_index] - ahn_ma[ahn_index.bladnr]
+            print result_index
+            # print ahn_index.bladnr
+            # print ma_3di.shape
+            #print ahn_index.x, ahn_index.y
+            # extra_index = np.bool8(np.ones(result_index[0].shape))
+            # extra_index[np.less(result_index[0], 0)] = False
+            # extra_index[np.less(result_index[1], 0)] = False
+            # extra_index[np.greater_equal(result_index[0], ma_result.shape[0])] = False
+            # extra_index[np.greater_equal(result_index[1], ma_result.shape[1])] = False
 
+            if 1:  #try:
+                ma_result[result_index] = ma_3di[result_index] - ahn_ma[ahn_index.bladnr]
+            # except:
+            # #     print 'something went wrong with ma_result'
+            #     traceback.print_exc(file=sys.stdout)
         # make all values < 0 transparent
         #ma_result[np.ma.less(ma_3di, 0)] = np.ma.masked
         if region_mask is not None:
