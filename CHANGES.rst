@@ -2,7 +2,7 @@ Changelog of threedilib
 ===================================================
 
 
-0.5 (unreleased)
+0.5 (2012-11-27)
 ----------------
 
 - Made gridsize more flexible.
