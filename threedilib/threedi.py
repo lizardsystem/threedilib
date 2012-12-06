@@ -319,11 +319,11 @@ def post_process_detailed_3di(
             # extra_index[np.greater_equal(result_index[0], ma_result.shape[0])] = False
             # extra_index[np.greater_equal(result_index[1], ma_result.shape[1])] = False
 
-            if 1:  #try:
+            try:
                 ma_result[result_index] = ma_3di[result_index] - ahn_ma[ahn_index.bladnr]
-            # except:
-            # #     print 'something went wrong with ma_result'
-            #     traceback.print_exc(file=sys.stdout)
+            except:
+                print 'something went wrong with ma_result (should not happen)'
+                traceback.print_exc(file=sys.stdout)
         # make all values < 0 transparent
         #ma_result[np.ma.less(ma_3di, 0)] = np.ma.masked
         if region_mask is not None:
