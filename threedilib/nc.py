@@ -31,18 +31,40 @@ class Data(object):
         self.Y1 = numpy.ceil(self.y1.max() / 1250.) * 1250
 
         # Grid steps
-        if gridsize is None:
+        if gridsize is not None:
+            self.XS = gridsize
+            self.YS = gridsize
+        elif step_divider is not None:
             print 'native gridsize x: %d' % (self.x1 - self.x0).min()
             print 'native gridsize y: %d' % (self.y1 - self.y0).min()
             self.XS = (self.x1 - self.x0).min() / step_divider
             self.YS = (self.y1 - self.y0).min() / step_divider
         else:
-            self.XS = gridsize
-            self.YS = gridsize
+            # Automatic: about 2000x2000 (on the longest edge)
+            # meters
+            measure = max((self.X1 - self.X0).min(), (self.Y1 - self.Y0).min())  
+            if measure > 25000:
+                self.XS = 10
+                self.YS = 10
+            elif measure > 10000.:
+                self.XS = 5
+                self.YS = 5
+            elif measure > 2500.:
+                self.XS = 2
+                self.YS = 2
+            elif measure > 1000.:
+                self.XS = 1
+                self.YS = 1
+            else:
+                self.XS = 0.5
+                self.YS = 0.5
+            print measure
+            print 'automatic gridsize: %d %d' % (self.XS, self.YS)
 
         # Grid size
         self.NY = (self.Y1 - self.Y0) / self.YS
         self.NX = (self.X1 - self.X0) / self.XS
+        print 'resulting images become %d x %d pixels' % (self.NX, self.NY)
 
         # Geotransform
         self.geotransform = (
