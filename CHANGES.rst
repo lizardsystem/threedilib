@@ -2,7 +2,7 @@ Changelog of threedilib
 ===================================================
 
 
-0.6 (unreleased)
+0.6 (2012-12-17)
 ----------------
 
 - Added autodetect resolution.
