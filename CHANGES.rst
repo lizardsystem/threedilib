@@ -5,7 +5,7 @@ Changelog of threedilib
 0.7 (unreleased)
 ----------------
 
-- Nothing changed yet.
+- Add modeling tools.
 
 
 0.6 (2012-12-17)
