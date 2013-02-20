@@ -37,5 +37,6 @@ setup(name='threedilib',
       entry_points={
           'console_scripts': [
               'shp2shp_ahn = threedilib.modeling.shp2shp_ahn:main',
+              'shp2inp = threedilib.modeling.shp2inp:main',
           ]},
       )

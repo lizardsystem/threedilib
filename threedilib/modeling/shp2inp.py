@@ -11,6 +11,8 @@ import collections
 
 from osgeo import ogr
 
+from threedilib.modeling import progress
+
 
 def get_args():
     """ Return arguments dictionary. """
@@ -41,14 +43,16 @@ def main():
     source_path = args['source']
     target_path = args['target']
 
-    lines = collections.DefaultDict(dict)
+    lines = collections.defaultdict(dict)
     source_dataset = ogr.Open(source_path)
     source_layer = source_dataset[0]
+    total = source_layer.GetFeatureCount()
+    print('Going to process {} feature(s).'.format(total))
+    indicator = progress.Indicator(total)
     for feature in source_layer:
         name = feature[name_attribute]
         start, end = feature.geometry().GetPoints()  # Crash with segments > 1
-        print(start, end)
-        break
+        indicator.update()
 
     sign, target_path, lines, name  # Pyflakes
 
