@@ -6,15 +6,17 @@ from __future__ import unicode_literals
 from __future__ import absolute_import
 from __future__ import division
 
-
-test = """0...10...20...30...40...50...60...70...80...90...100 - done."""
-
 import sys
-import time
 
 
 class Indicator(object):
-    """ Progress indicator. """
+    """
+    Progress indicator.
+
+    Instantiate with amount of calls to update() expected. If you have
+    only an estimate, be sure to call complete() afterwards, to render
+    a completed progress bar.
+    """
 
     INDICATOR = []
     for text in map(str, range(00, 100, 10)):
@@ -22,41 +24,66 @@ class Indicator(object):
         INDICATOR.extend(3 * '.')
     INDICATOR.append('100 - done.\n')
 
-    def __init__(self, length):
+    def __init__(self, total):
         """ Set the expected length of the job. """
-        self.end = length - 1
+        self.total = total
+        self.count = 0  # Update counter
         self.position = 0  # Indicator position
-        self.value = 0  # Jobs counter
-        self._update()  # Display the first item
+        self._progress()  # Display the first item
 
-    def _update(self):
+    def _progress(self):
         """ Update indicator one position. """
         sys.stdout.write(self.INDICATOR[self.position])
         sys.stdout.flush()
         self.position += 1
 
     def update(self):
-        """ Update progress according to value. """
-        fraction = self.value / self.end
-        position = fraction * len(self.INDICATOR)
-        while self.position < position:
-            self._update()
-        self.value += 1
+        """
+        Update progress one unit towards end.
+
+        Because of the min(), excessive updates don't crash.
+        """
+        self.count += 1
+        fraction = self.count / self.total
+        position = min(fraction, 1) * (len(self.INDICATOR) - 1)
+        while self.position <= position:
+            self._progress()
+
+    def complete(self):
+        """ Complete progress. """
+        while self.position < len(self.INDICATOR):
+            self._progress()
 
 
 def main():
+    """ Kind of test suite. """
+    import time
+    # Few steps
     length = 5
-    p = Indicator(length=length)
+    p = Indicator(total=length)
     for i in range(length):
-        s = 0.1
-        time.sleep(s)
         p.update()
-    length = 133
-    p = Indicator(length=length)
-    for i in range(length):
-        s = 0.01
-        time.sleep(s)
+    # Too many updates
+    length = 5
+    p = Indicator(total=length)
+    for i in range(length * 2):
         p.update()
+    # Complete before end
+    length = 5
+    p = Indicator(total=length)
+    for i in range(length // 2):
+        p.update()
+    p.complete()
+    # Many steps
+    length = 500
+    p = Indicator(total=length)
+    p.update()
+    time.sleep(1)
+    for i in range(length - 2):
+        time.sleep(0.001)
+        p.update()
+    time.sleep(1)
+    p.update()
 
 
 if __name__ == '__main__':
