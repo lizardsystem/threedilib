@@ -12,8 +12,13 @@ BUILDOUT_DIR = os.path.join(
     os.path.dirname(os.path.realpath(__file__)),
     '..',
 )
+# Ahn shape scripts
 INDEX_PATH = os.path.join(BUILDOUT_DIR, 'var', 'index', 'ahn2_05_int_index.shp')
 AHN_PATH = os.path.join(BUILDOUT_DIR, 'var', 'ahn')
+
+# Pointcloud sync script
+POINTCLOUD_DIR = os.path.join(BUILDOUT_DIR, 'var', 'pointcloud')
+POINTCLOUD_TABLE = 'pointcloud'
 
 # Import local settings
 try:

@@ -38,5 +38,6 @@ setup(name='threedilib',
           'console_scripts': [
               'shp2shp_ahn = threedilib.modeling.shp2shp_ahn:main',
               'shp2inp = threedilib.modeling.shp2inp:main',
+              'pointcloud_sync = threedilib.pointcloud.sync:main',
           ]},
       )
