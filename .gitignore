@@ -32,6 +32,9 @@ nosetests.xml
 .mr.developer.cfg
 src
 
+# Local config
+threedilib/local*
+
 # Ignore generated config files
 etc/*.nginx.conf
 etc/*.logrotate
