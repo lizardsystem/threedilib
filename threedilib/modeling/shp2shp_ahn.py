@@ -16,18 +16,15 @@ from osgeo import ogr
 import numpy as np
 
 from threedilib.modeling import progress
+from threedilib import config
 
 SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
-REMOTE_ROOT = '/mnt/3di/Data_Sources/nl'
-INDEX_PATH = os.path.join(REMOTE_ROOT,
-                          'index/ahn2_05_int_index/ahn2_05_int_index.shp')
-AHN_PATH = os.path.join(REMOTE_ROOT,
-                        'geotiffs/ahn2_05_int')
 
-cache = {}
-index_dataset = ogr.Open(INDEX_PATH)
-index = index_dataset[0]
 
+def get_index_dataset():
+    """ Open index dataset from config location. """
+    return ogr.Open(config.INDEX_PATH)
+    
 
 def get_args():
     """ Return arguments dictionary. """
@@ -111,7 +108,7 @@ def get_dataset(leaf):
 
     # Add to cache and return.
     unit = SHEET.match(leafno).group('unit')
-    path = os.path.join(AHN_PATH, unit, leafno + '.tif')
+    path = os.path.join(config.AHN_PATH, unit, leafno + '.tif')
     cache[leafno] = gdal.Open(path)
     return cache[leafno]
 
@@ -213,9 +210,15 @@ def main():
                            lines=lines, values=values, name=name)
             indicator.update()
 
+    # Close the datasets
     source_dataset = None
     target_dataset = None
+    index = None
 
+
+cache = {}
+index_dataset = get_index_dataset()
+index = index_dataset[0]
 
 if __name__ == '__main__':
     exit(main())
