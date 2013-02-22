@@ -21,9 +21,13 @@ from threedilib import config
 SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
 
 
-def get_index_dataset():
-    """ Open index dataset from config location. """
-    return ogr.Open(config.INDEX_PATH)
+def get_index():
+    """ Return index from container or open from config location. """
+    key = 'index'
+    if key not in cache:
+        dataset = ogr.Open(config.INDEX_PATH)
+        cache[key] = dataset
+    return cache[key][0]
     
 
 def get_args():
@@ -129,6 +133,7 @@ def get_values(dataset, lines):
 def pixelize(segment):
     """ Return lines, values tuple of numpy arrays. """
     # Get tile and check if it is the only tile
+    index = get_index()
     index.SetSpatialFilter(segment.Centroid())
     if index.GetFeatureCount() > 1:
         raise ValueError('There should be only one tile per segment!')
@@ -213,12 +218,10 @@ def main():
     # Close the datasets
     source_dataset = None
     target_dataset = None
-    index = None
+    cache = None
 
 
-cache = {}
-index_dataset = get_index_dataset()
-index = index_dataset[0]
+cache = {}  # Contains leafno's and the index
 
 if __name__ == '__main__':
     exit(main())
