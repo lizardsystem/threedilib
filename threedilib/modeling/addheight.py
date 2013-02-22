@@ -117,15 +117,13 @@ def get_dataset(leaf):
     return cache[leafno]
 
 
-def get_values(dataset, lines):
+def get_values(dataset, points):
     """ Return the height from dataset. """
     geotransform = np.array(dataset.GetGeoTransform())
     cellsize = geotransform[np.array([[1, 5]])]  # Note no abs() now!
     origin = geotransform[np.array([[0, 3]])]
-    # Find coordinates of top left points of lines
-    coordinates = np.array([lines[..., 0].min(1), lines[..., 1].max(1)]).T
     # Make indices
-    indices = tuple(np.int64((coordinates - origin) / cellsize).T)[::-1]
+    indices = tuple(np.int64((points - origin) / cellsize).T)[::-1]
     # Use indices to query the data
     return dataset.ReadAsArray()[indices]
 
@@ -146,11 +144,13 @@ def pixelize(segment):
     parameters = parameterize_intersects(vector=vector,
                                          offset=offset,
                                          cellsize=cellsize)
-    points = np.array([offset]) + np.array([vector]) * np.array([parameters]).T
-    lines = np.array([points[:-1].T, points[1:].T]).transpose(2, 0, 1)
+    ends = np.array([offset]) + np.array([vector]) * np.array([parameters]).T
+    lines = np.array([ends[:-1].T, ends[1:].T]).transpose(2, 0, 1)
+    points = lines.mean(1)
+    
     # Get values
-    values = get_values(dataset, lines)
-    return lines, values
+    values = get_values(dataset, points)
+    return points, values
 
 
 def get_initialized_shape(path):
@@ -169,24 +169,50 @@ def get_initialized_shape(path):
     field_definition_type.SetWidth(64)
     layer.CreateField(field_definition_type)
 
-    # Add height field
-    field_definition_height = ogr.FieldDefn(b'Height', ogr.OFTReal)
-    layer.CreateField(field_definition_height)
-
     return dataset
 
 
-def write_to_layer(layer, lines, values, name='Sjef'):
-        layer_definition = layer.GetLayerDefn()
-        for line, value in zip(lines, values):
-            geometry = ogr.Geometry(ogr.wkbLineString)
-            geometry.AddPoint_2D(*line[0])
-            geometry.AddPoint_2D(*line[1])
-            feature = ogr.Feature(layer_definition)
-            feature.SetGeometry(geometry)
-            feature.SetField(b'Type', str(name))
-            feature.SetField(b'Height', float(value))
-            layer.CreateFeature(feature)
+
+def get_new_feature(layer, segment, name):
+    """ Create new feature. """
+    # Create geometry with first x, y from segment
+    geometry = ogr.Geometry(ogr.wkbLineString)
+    x0, y0 = segment.GetPoint_2D(0)
+    geometry.AddPoint(x0, y0, 0.)
+    
+    # Add to feature
+    layer_definition = layer.GetLayerDefn()
+    feature = ogr.Feature(layer_definition)
+    feature.SetGeometry(geometry)
+    feature.SetField(b'Type', str(name))
+    return feature
+
+
+def add_points(feature, points, values):
+    """ Add points and values as x, y, z to feature. """
+    geometry = feature.geometry()
+    for (x, y), z in zip(points, values):
+        geometry.AddPoint(float(x), float(y), float(z))
+
+
+def add_to_layer(layer, feature, segment):
+    """ Add to layer after setting height of first and last points. """
+    geometry = feature.geometry()
+
+    # Set height of first point
+    x0, y0, z0 = geometry.GetPoint(0)
+    x1, y1, z1 = geometry.GetPoint(1)
+    geometry.SetPoint(0, x0, y0, z1)
+
+    # Add point with x y from segment and z from feature
+    segment_length = segment.GetPointCount()
+    xf, yf, zf = geometry.GetPoint(feature_length - 1)
+    feature_length = geometry.GetPointcount()
+    xs, ys, zs = segment.GetPoint(segment_length - 1)
+    geometry.AddPoint(xs, ys, zf)
+
+    # Add to layer
+    layer.CreateFeature(feature)
 
 
 def main():
@@ -208,17 +234,21 @@ def main():
 
     indicator = progress.Indicator(total)
     for feature in source_layer:
-        name = feature[b'TYPE']
+        name = feature[b'Type']
         for i, segment in enumerate(segmentize(feature.geometry())):
-            lines, values = pixelize(segment)
-            write_to_layer(layer=target_layer,
-                           lines=lines, values=values, name=name)
+            points, values = pixelize(segment)
+
+            if i == 0:
+                feature = get_new_feature(layer=target_layer, segment=segment, name=name)
+            add_points(feature=feature, points=points, values=values)
             indicator.update()
+
+        add_to_layer(layer=target_layer, feature=feature, segment=segment)
 
     # Close the datasets
     source_dataset = None
     target_dataset = None
-    cache = None
+    cache = {}
 
 
 cache = {}  # Contains leafno's and the index
