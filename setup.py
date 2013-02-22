@@ -36,8 +36,8 @@ setup(name='threedilib',
       extras_require = {'test': tests_require},
       entry_points={
           'console_scripts': [
-              'shp2shp_ahn = threedilib.modeling.shp2shp_ahn:main',
-              'shp2inp = threedilib.modeling.shp2inp:main',
+              'modeling_addheight = threedilib.modeling.addheight:main',
+              'modeling_makeinp = threedilib.modeling.makeinp:main',
               'pointcloud_sync = threedilib.pointcloud.sync:main',
           ]},
       )
