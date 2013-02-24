@@ -153,6 +153,113 @@ def pixelize(segment):
     return points, values
 
 
+def get_target_dataset(path):
+    """
+    Return ogr dataset.
+
+    delete dataset at path if it exists.
+    """
+    # driver = ogr.GetDriverByName(b'Memory')
+    driver = ogr.GetDriverByName(b'ESRI Shapefile')
+    if os.path.exists(path):
+        driver.DeleteDataSource(str(path))
+
+    dataset = driver.CreateDataSource(str(path))
+    return dataset
+
+
+def get_target_layer(target_dataset, source_layer):
+    """
+    Return layer.
+    
+    Adds an empty layer with same definition as source layer on target dataset.
+    """
+    target_layer = target_dataset.CreateLayer(source_layer.GetName())
+    
+    # Copy field definitions
+    source_layer_definition = source_layer.GetLayerDefn()
+    for i in range(source_layer_definition.GetFieldCount()):
+        target_layer.CreateField(source_layer_definition.GetFieldDefn(i))
+
+
+    return target_layer
+
+def get_target_feature(target_layer, source_feature):
+    """
+    Return feature.
+
+    Adds empty feature with same attributes as source feature to target layer.
+    """
+    target_layer_definition = target_layer.GetLayerDefn()
+    target_feature = ogr.Feature(target_layer_definition)
+
+    target_feature = ogr.Feature(target_layer_definition)
+    for key, value in source_feature.items().items():
+        target_feature[key] = value
+    target_layer.CreateFeature(target_feature)
+
+
+def set_geometry(source_feature, target_feature):
+    """
+    Set target feature's geometry to converted source feature's geometry.
+    """
+    source_geometry = source_feature.geometry()
+    target_geometry = ogr.Geometry(ogr.wkbLineString)
+    for point in source_geometry.GetPoints():
+        geometry.AddPoint(*point)
+    target_feature.SetGeometry(target_geometry)
+
+
+def main():
+    args = get_args()
+    source_path = args['source']
+    source_dataset = ogr.Open(source_path)
+
+    target_path = args['target']
+    target_dataset = get_target_dataset(target_path)
+
+    for source_layer in source_dataset:
+        target_layer = get_target_layer(target_dataset, source_layer)
+
+        for source_feature in source_layer:
+            target_feature = get_target_feature(target_layer, source_feature)
+
+            
+
+
+
+
+    """
+    Planned approach:
+    Prepare target dataset with layer with same field defenitions.
+    - For feature in layer:
+        Create new feature with layer's defn,
+        Copy attributes
+        Read the geometry and call addheight(geometry)
+        Add that to the feature.
+        Add feature to new layer
+
+
+    """
+    # Count planned work
+    #total = 0
+    #for feature in source_layer:
+        #for segment in segmentize(feature.geometry()):
+            #total += 1
+    #source_layer.ResetReading()
+
+    # Close the datasets
+    source_dataset = None
+    target_dataset = None
+    cache = {}
+
+
+cache = {}  # Contains leafno's and the index
+
+if __name__ == '__main__':
+    exit(main())
+
+
 def get_initialized_shape(path):
     """ Return ogr dataset. """
     # Prepare in-memory ogr layer
@@ -213,45 +320,3 @@ def add_to_layer(layer, feature, segment):
 
     # Add to layer
     layer.CreateFeature(feature)
-
-
-def main():
-    args = get_args()
-    source_path = args['source']
-    source_dataset = ogr.Open(source_path)
-    source_layer = source_dataset[0]
-
-    target_path = args['target']
-    target_dataset = get_initialized_shape(target_path)
-    target_layer = target_dataset[0]
-
-    # Count planned work
-    total = 0
-    for feature in source_layer:
-        for segment in segmentize(feature.geometry()):
-            total += 1
-    source_layer.ResetReading()
-
-    indicator = progress.Indicator(total)
-    for feature in source_layer:
-        name = feature[b'Type']
-        for i, segment in enumerate(segmentize(feature.geometry())):
-            points, values = pixelize(segment)
-
-            if i == 0:
-                feature = get_new_feature(layer=target_layer, segment=segment, name=name)
-            add_points(feature=feature, points=points, values=values)
-            indicator.update()
-
-        add_to_layer(layer=target_layer, feature=feature, segment=segment)
-
-    # Close the datasets
-    source_dataset = None
-    target_dataset = None
-    cache = {}
-
-
-cache = {}  # Contains leafno's and the index
-
-if __name__ == '__main__':
-    exit(main())
