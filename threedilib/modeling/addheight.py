@@ -180,8 +180,6 @@ def get_target_layer(target_dataset, source_layer):
     source_layer_definition = source_layer.GetLayerDefn()
     for i in range(source_layer_definition.GetFieldCount()):
         target_layer.CreateField(source_layer_definition.GetFieldDefn(i))
-
-
     return target_layer
 
 def get_target_feature(target_layer, source_feature):
@@ -196,7 +194,7 @@ def get_target_feature(target_layer, source_feature):
     target_feature = ogr.Feature(target_layer_definition)
     for key, value in source_feature.items().items():
         target_feature[key] = value
-    target_layer.CreateFeature(target_feature)
+    return target_feature
 
 
 def set_geometry(source_feature, target_feature):
@@ -206,7 +204,7 @@ def set_geometry(source_feature, target_feature):
     source_geometry = source_feature.geometry()
     target_geometry = ogr.Geometry(ogr.wkbLineString)
     for point in source_geometry.GetPoints():
-        geometry.AddPoint(*point)
+        target_geometry.AddPoint_2D(*point)
     target_feature.SetGeometry(target_geometry)
 
 
@@ -223,24 +221,10 @@ def main():
 
         for source_feature in source_layer:
             target_feature = get_target_feature(target_layer, source_feature)
-
-            
-
-
+            set_geometry(source_feature, target_feature)
+            target_layer.CreateFeature(target_feature)
 
 
-    """
-    Planned approach:
-    Prepare target dataset with layer with same field defenitions.
-    - For feature in layer:
-        Create new feature with layer's defn,
-        Copy attributes
-        Read the geometry and call addheight(geometry)
-        Add that to the feature.
-        Add feature to new layer
-
-
-    """
     # Count planned work
     #total = 0
     #for feature in source_layer:
