@@ -150,7 +150,7 @@ def pixelize(segment):
     
     # Get values
     values = get_values(dataset, points)
-    return points, values
+    return lines, points, values
 
 
 def get_target_dataset(path):
@@ -197,15 +197,33 @@ def get_target_feature(target_layer, source_feature):
     return target_feature
 
 
-def set_geometry(source_feature, target_feature):
+def convert_geometry(source_geometry, indicator):
     """
     Set target feature's geometry to converted source feature's geometry.
     """
-    source_geometry = source_feature.geometry()
+    source_points = source_geometry.GetPoints()
+
     target_geometry = ogr.Geometry(ogr.wkbLineString)
-    for point in source_geometry.GetPoints():
-        target_geometry.AddPoint_2D(*point)
-    target_feature.SetGeometry(target_geometry)
+    for i, segment in enumerate(segmentize(source_geometry)):
+        lines, points, values = pixelize(segment)
+
+        # Add first point of the first line if this is the first segment
+        if i == 0:
+            target_geometry.AddPoint(float(lines[0, 0, 0]),
+                                     float(lines[0, 0, 1]),
+                                     float(values[0]))
+
+        # Add the rest of the points (x, y) and values (z)
+        for (x, y), z in zip(points, values):
+            target_geometry.AddPoint(float(x), float(y), float(z))
+
+        indicator.update()
+
+    # Add the last point of the last line of the last segment
+    target_geometry.AddPoint(float(lines[-1, 1, 0]),
+                             float(lines[-1, 1, 1]),
+                             float(values[-1]))
+    return target_geometry
 
 
 def main():
@@ -216,21 +234,25 @@ def main():
     target_path = args['target']
     target_dataset = get_target_dataset(target_path)
 
+    # Count work
+    count = 0
+    for source_layer in source_dataset:
+        for source_feature in source_layer:
+            for segment in segmentize(source_feature.geometry()):
+                count += 1
+        source_layer.ResetReading()
+    indicator = progress.Indicator(count)
+
     for source_layer in source_dataset:
         target_layer = get_target_layer(target_dataset, source_layer)
 
         for source_feature in source_layer:
+            source_geometry = source_feature.geometry()
+            target_geometry = convert_geometry(source_geometry, indicator)
+
             target_feature = get_target_feature(target_layer, source_feature)
-            set_geometry(source_feature, target_feature)
+            target_feature.SetGeometry(target_geometry)
             target_layer.CreateFeature(target_feature)
-
-
-    # Count planned work
-    #total = 0
-    #for feature in source_layer:
-        #for segment in segmentize(feature.geometry()):
-            #total += 1
-    #source_layer.ResetReading()
 
     # Close the datasets
     source_dataset = None
@@ -242,65 +264,3 @@ cache = {}  # Contains leafno's and the index
 
 if __name__ == '__main__':
     exit(main())
-
-
-def get_initialized_shape(path):
-    """ Return ogr dataset. """
-    # Prepare in-memory ogr layer
-    # driver = ogr.GetDriverByName(b'Memory')
-    driver = ogr.GetDriverByName(b'ESRI Shapefile')
-    if os.path.exists(path):
-        driver.DeleteDataSource(str(path))
-
-    dataset = driver.CreateDataSource(str(path))
-    layer = dataset.CreateLayer(b'')
-
-    # Add type field
-    field_definition_type = ogr.FieldDefn(b'Type', ogr.OFTString)
-    field_definition_type.SetWidth(64)
-    layer.CreateField(field_definition_type)
-
-    return dataset
-
-
-
-def get_new_feature(layer, segment, name):
-    """ Create new feature. """
-    # Create geometry with first x, y from segment
-    geometry = ogr.Geometry(ogr.wkbLineString)
-    x0, y0 = segment.GetPoint_2D(0)
-    geometry.AddPoint(x0, y0, 0.)
-    
-    # Add to feature
-    layer_definition = layer.GetLayerDefn()
-    feature = ogr.Feature(layer_definition)
-    feature.SetGeometry(geometry)
-    feature.SetField(b'Type', str(name))
-    return feature
-
-
-def add_points(feature, points, values):
-    """ Add points and values as x, y, z to feature. """
-    geometry = feature.geometry()
-    for (x, y), z in zip(points, values):
-        geometry.AddPoint(float(x), float(y), float(z))
-
-
-def add_to_layer(layer, feature, segment):
-    """ Add to layer after setting height of first and last points. """
-    geometry = feature.geometry()
-
-    # Set height of first point
-    x0, y0, z0 = geometry.GetPoint(0)
-    x1, y1, z1 = geometry.GetPoint(1)
-    geometry.SetPoint(0, x0, y0, z1)
-
-    # Add point with x y from segment and z from feature
-    segment_length = segment.GetPointCount()
-    xf, yf, zf = geometry.GetPoint(feature_length - 1)
-    feature_length = geometry.GetPointcount()
-    xs, ys, zs = segment.GetPoint(segment_length - 1)
-    geometry.AddPoint(xs, ys, zf)
-
-    # Add to layer
-    layer.CreateFeature(feature)
