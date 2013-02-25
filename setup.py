@@ -37,7 +37,7 @@ setup(name='threedilib',
       entry_points={
           'console_scripts': [
               'modeling_addheight = threedilib.modeling.addheight:main',
-              'modeling_makeinp = threedilib.modeling.makeinp:main',
+              'modeling_convert = threedilib.modeling.convert:main',
               'pointcloud_sync = threedilib.pointcloud.sync:main',
           ]},
       )
