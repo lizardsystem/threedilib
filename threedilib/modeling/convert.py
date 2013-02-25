@@ -77,8 +77,9 @@ class InputFileWriter(object):
         # Add nodes and links up to the last node
         for i in range(len(nodes) - 1):
             self.node_count += 1
-            self.node_file.write('{} {} {}\n'.format(
-                nodes[i][0], nodes[i][1], -nodes[i][2]  # Depth, not height.
+            self.node_file.write('{} {} {} {}\n'.format(
+                self.node_count, nodes[i][0],
+                nodes[i][1], -nodes[i][2]  # Depth, not height.
             ))
             self.link_count += 1
             self.link_file.write('{} {} {}\n'.format(
