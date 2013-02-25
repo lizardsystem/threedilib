@@ -33,12 +33,12 @@ def get_index():
 def get_args():
     """ Return arguments dictionary. """
     parser = argparse.ArgumentParser(description='No description yet.')
-    parser.add_argument('source',
+    parser.add_argument('source_path',
                         metavar='SOURCE',
-                        help=('Shapefile with linestrings in a single layer.'))
-    parser.add_argument('target',
+                        help=('Path to shapefile with linestrings.'))
+    parser.add_argument('target_path',
                         metavar='TARGET',
-                        help=('Target shapefile, will be overwritten.'))
+                        help=('Path to target shapefile, to be overwritten.'))
     return vars(parser.parse_args())
 
 
@@ -226,14 +226,16 @@ def convert_geometry(source_geometry, indicator):
     return target_geometry
 
 
-def main():
-    args = get_args()
-    source_path = args['source']
+def addheight(source_path, target_path):
+    """ 
+    Take linestrings from source and create target with height added.
+
+    Source and target are both shapefiles.
+    """
+    # Open datasets
     source_dataset = ogr.Open(source_path)
-
-    target_path = args['target']
     target_dataset = get_target_dataset(target_path)
-
+    
     # Count work
     count = 0
     for source_layer in source_dataset:
@@ -258,6 +260,13 @@ def main():
     source_dataset = None
     target_dataset = None
     cache = {}
+
+
+def main():
+    """ Calls addheight function with args from commandline. """
+    args = get_args()
+    addheight(**args)
+
 
 
 cache = {}  # Contains leafno's and the index
