@@ -12,6 +12,7 @@ install_requires = [
     'setuptools',
     'lizard_raster',
     'netcdf4',
+    'Pillow',
     ],
 
 tests_require = [
