@@ -70,24 +70,30 @@ class InputFileWriter(object):
         self.link_file.close()
         shutil.rmtree(self.temp_directory)
 
+    def _write_node(self, node):
+        """ Write a node. """
+        self.node_count += 1
+        self.node_file.write('{} {} {} {}\n'.format(
+            self.node_count, node[0], node[1], -node[2]  # Depth, not height!
+        ))
+    
+    def _write_link(self):
+        """ Write a link between previous node and next node."""
+        self.link_count += 1
+        self.link_file.write('{} {} {}\n'.format(
+            self.link_count, self.node_count, self.node_count + 1,
+        ))
+
     def add_feature(self, feature):
         """ Add feature as nodes and links. """
         geometry = feature.geometry()
         nodes = geometry.GetPoints()
         # Add nodes and links up to the last node
         for i in range(len(nodes) - 1):
-            self.node_count += 1
-            self.node_file.write('{} {} {} {}\n'.format(
-                self.node_count, nodes[i][0],
-                nodes[i][1], -nodes[i][2]  # Depth, not height.
-            ))
-            self.link_count += 1
-            self.link_file.write('{} {} {}\n'.format(
-                self.link_count, self.node_count, self.node_count + 1,
-            ))
+            self._write_node(nodes[i])
+            self._write_link()
         # Add last node, link already covered.
-        self.node_file.write('{} {} {}\n'.format(*nodes[-1]))
-        self.node_count += 1
+        self._write_node(nodes[-1])
 
 
 class ImageWriter(object):
