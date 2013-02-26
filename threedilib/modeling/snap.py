@@ -12,13 +12,16 @@ import os
 import shutil
 import tempfile
 
+import numpy as np
+
 from matplotlib.backends import backend_agg
 from matplotlib import figure
 from osgeo import ogr
 from PIL import Image
 from scipy import interpolate
 
-import numpy as np
+from threedilib.modeling import progress
+
 
 INTERSECT_TOLERANCE = 0.01
 
@@ -138,39 +141,50 @@ def get_snap_geometries(geometry, layer, distance):
             
             #img.add(point2geometry(nearest_point).Buffer(2), 'g')
             #img.add([snap_geometry], 'm')
-            #img.show()
             
             yield snap_geometry
-        else:
-            #img.show()
-            yield
-            
+        #img.show()
 
-
-
-        
-    yield 1
-                
 
 def snap(network_path, loose_path, target_path, distance):
     """ Create connections from loose lines to network. """
+    # Open input datasets
     network_dataset = ogr.Open(network_path)
     loose_dataset = ogr.Open(loose_path)
-
     network_layer = network_dataset[0]
     loose_layer = loose_dataset[0]
 
+    # Prepare output dataset
+    driver = ogr.GetDriverByName(b'ESRI Shapefile')
+    if os.path.exists(target_path):
+        driver.DeleteDataSource(str(target_path))
+    target_dataset = driver.CreateDataSource(str(target_path))
+    target_layer = target_dataset.CreateLayer(b'Snapped objects')
+    target_layer_definition = target_layer.GetLayerDefn()
+
+    # Count work
     count = 0
-    results = []
-    
-    print('tic')
     for geometry in get_layer_geometries(loose_layer):
         count += 1
-        if count < 10:
-            results.extend(get_snap_geometries(geometry=geometry,
-                                               layer=network_layer,
-                                               distance=distance))
-    print(results)
+    indicator = progress.Indicator(count)
+    loose_layer.ResetReading()
+
+    # Do the work
+    count = 0
+    for geometry in get_layer_geometries(loose_layer):
+        indicator.update()
+        target_geometries = get_snap_geometries(
+            geometry=geometry, layer=network_layer, distance=distance,
+        )
+        for target_geometry in target_geometries:
+            target_feature = ogr.Feature(target_layer_definition)
+            target_feature.SetGeometry(target_geometry)
+            target_layer.CreateFeature(target_feature)
+
+    # Properly close datasets
+    network_dataset = None
+    loose_dataset = None
+    target_dataset = None
         
 
 def main():
