@@ -17,9 +17,9 @@ Schematisation tools
 --------------------
 The following commands are available::
 
-    bin/modeling_addheight
-    bin/modeling_convert
-    bin/modeling_snap
+    $ bin/modeling_addheight
+    $ bin/modeling_convert
+    $ bin/modeling_snap
 
 Each command can be run with --help as argument for usage instructions.
 
