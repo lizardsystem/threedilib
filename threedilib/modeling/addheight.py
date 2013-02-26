@@ -18,6 +18,19 @@ import numpy as np
 from threedilib.modeling import progress
 from threedilib import config
 
+DESCRIPTION = """
+    Convert a shapefile containing 2D linestrings to a shapefile
+    containing 3D linestrings where the third coordinate is the height
+    according to the a resolution height map. Each line is segmentized
+    in lines that span exactly one pixel of the height map, after which
+    the midpoint of these lines becomes an 3D point in the resulting line.
+
+    For the script to work, a configuration variable AHN_PATH must be
+    set in threedilib/localconfig.py pointing to the location of the
+    height map, and a variable INDEX_PATH pointing to the .shp file that
+    contains the index to the heightmap.
+"""
+
 SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
 
 
@@ -28,14 +41,17 @@ def get_index():
         dataset = ogr.Open(config.INDEX_PATH)
         cache[key] = dataset
     return cache[key][0]
-    
+
 
 def get_args():
     """ Return arguments dictionary. """
-    parser = argparse.ArgumentParser(description='No description yet.')
+    parser = argparse.ArgumentParser(
+        description=DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument('source_path',
                         metavar='SOURCE',
-                        help=('Path to shapefile with linestrings.'))
+                        help=('Path to shapefile with 2D linestrings.'))
     parser.add_argument('target_path',
                         metavar='TARGET',
                         help=('Path to target shapefile, to be overwritten.'))
@@ -147,7 +163,7 @@ def pixelize(segment):
     ends = np.array([offset]) + np.array([vector]) * np.array([parameters]).T
     lines = np.array([ends[:-1].T, ends[1:].T]).transpose(2, 0, 1)
     points = lines.mean(1)
-    
+
     # Get values
     values = get_values(dataset, points)
     return lines, points, values
@@ -171,16 +187,17 @@ def get_target_dataset(path):
 def get_target_layer(target_dataset, source_layer):
     """
     Return layer.
-    
+
     Adds an empty layer with same definition as source layer on target dataset.
     """
     target_layer = target_dataset.CreateLayer(source_layer.GetName())
-    
+
     # Copy field definitions
     source_layer_definition = source_layer.GetLayerDefn()
     for i in range(source_layer_definition.GetFieldCount()):
         target_layer.CreateField(source_layer_definition.GetFieldDefn(i))
     return target_layer
+
 
 def get_target_feature(target_layer, source_feature):
     """
@@ -201,8 +218,6 @@ def convert_geometry(source_geometry, indicator):
     """
     Set target feature's geometry to converted source feature's geometry.
     """
-    source_points = source_geometry.GetPoints()
-
     target_geometry = ogr.Geometry(ogr.wkbLineString)
     for i, segment in enumerate(segmentize(source_geometry)):
         lines, points, values = pixelize(segment)
@@ -227,7 +242,7 @@ def convert_geometry(source_geometry, indicator):
 
 
 def addheight(source_path, target_path):
-    """ 
+    """
     Take linestrings from source and create target with height added.
 
     Source and target are both shapefiles.
@@ -235,7 +250,7 @@ def addheight(source_path, target_path):
     # Open datasets
     source_dataset = ogr.Open(source_path)
     target_dataset = get_target_dataset(target_path)
-    
+
     # Count work
     count = 0
     for source_layer in source_dataset:
@@ -259,14 +274,12 @@ def addheight(source_path, target_path):
     # Close the datasets
     source_dataset = None
     target_dataset = None
-    cache = {}
 
 
 def main():
     """ Calls addheight function with args from commandline. """
     args = get_args()
     addheight(**args)
-
 
 
 cache = {}  # Contains leafno's and the index
