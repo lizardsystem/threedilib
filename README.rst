@@ -6,8 +6,8 @@ Installation
 
 Standard setup::
 
-    python bootstrap.py
-    bin/buildout
+    $ python bootstrap.py
+    $ bin/buildout
 
 Some of the tools need separate configuration. The easiest way to do
 this is to create a file localconfig.py next to threedilib/config.py,
