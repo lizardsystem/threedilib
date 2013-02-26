@@ -39,6 +39,7 @@ setup(name='threedilib',
           'console_scripts': [
               'modeling_addheight = threedilib.modeling.addheight:main',
               'modeling_convert = threedilib.modeling.convert:main',
+              'modeling_snap = threedilib.modeling.snap:main',
               'pointcloud_sync = threedilib.pointcloud.sync:main',
           ]},
       )
