@@ -32,18 +32,19 @@ class Artwork(object):
         fig = figure.Figure()
         backend_agg.FigureCanvasAgg(fig)
         self.axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+        self.axes.axis('equal')
 
-    def add(self, geometries, color):
+    def add(self, geometries, style):
         """ Add some geometries to plot. """
         for geometry in geometries:
             x, y = zip(*geometry.GetPoints())
-            self.axes.plot(x, y, color)
+            self.axes.plot(x, y, style)
 
-    def show(self):
-        """ Show to image. """
+    def get(self):
+        """ Return image object. """
         buf, size = self.axes.figure.canvas.print_to_buffer()
-        image = Image.fromstring('RGBA', size, buf)
-        image.show()
+        return Image.fromstring('RGBA', size, buf)
+
 
 
 def get_args():
@@ -70,7 +71,7 @@ def get_args():
 def point2geometry(point):
     """ Return geometry. """
     geometry = ogr.Geometry(ogr.wkbPoint)
-    geometry.AddPoint_2D(*point)
+    geometry.AddPoint_2D(*map(float, point))
     return geometry
 
 
@@ -78,15 +79,17 @@ def line2geometry(line):
     """ Return geometry. """
     geometry = ogr.Geometry(ogr.wkbLineString)
     for point in line:
-        geometry.AddPoint_2D(*point)
+        geometry.AddPoint_2D(*map(float, point))
     return geometry
 
 
-def get_endpoints(geometry):
-    """ Return tuple of geometries. """
-    indices = 0, geometry.GetPointCount() - 1
-    points = map(geometry.GetPoint_2D, indices)
-    return map(point2geometry, points)
+def get_endpoints(feature):
+    """ Return generator of end points. """
+    for geometry in get_feature_geometries(feature):
+        indices = 0, geometry.GetPointCount() - 1
+        points = map(geometry.GetPoint_2D, indices)
+        for point in points:
+            yield point2geometry(point)
 
 
 def get_feature_geometries(feature):
@@ -110,40 +113,102 @@ def get_layer_geometries(layer):
             yield geometry
 
 
-def get_snap_geometries(geometry, layer, distance):
-    """ Return generator of snapping geometries. """
-    for point in get_endpoints(geometry):
-        # Some visualization
-        
-        #img = Artwork()
-        #img.add(point.Buffer(distance), '--k')
-        #img.add(point.Buffer(2), 'g')
-        #img.add([geometry], 'r')
+def get_projections(point, geometry):
+    """
+    Return list of points.
+    
+    Those points are returned where the projection of point on the
+    geometry segment is on the segment itself.
+    """
+    source = np.array(point.GetPoint_2D())
+    nodes = np.array(geometry.GetPoints())
+    start = nodes[:-1]
+    end = nodes[1:]
 
-        # The real stuff    
-        layer.SetSpatialFilter(point.Buffer(distance))
-        target_points = []
-        for target_feature in layer:
-            target_geometry = target_feature.geometry()
-            if point.Buffer(INTERSECT_TOLERANCE).Intersects(target_geometry):
+    # Determine projections
+    v1 = end - start
+    v1_length = np.sqrt((v1 ** 2).sum(1)).reshape(-1, 1)
+    v2 = source - start
+    v1n = v1 / v1_length
+
+    # Perform the dot product and the projections.
+    dotprod = (v1n * v2).sum(1).reshape(-1, 1)
+    projections = start + dotprod * v1n
+
+    # Determine which targets are on the segment
+    online = np.logical_and(
+        np.greater_equal(dotprod, 0),
+        np.less(dotprod, v1_length),
+    ).reshape(-1)
+
+    return projections[online].tolist()
+
+
+def get_snap_geometry(feature, layer, distance, artwork=None):
+    """ Return generator of snapping geometries. """
+    # Artwork
+    if artwork:
+        art = Artwork()
+        art.add(get_feature_geometries(feature), 'b')
+
+    snaplines = []
+    for endpoint in get_endpoints(feature):
+        # Artwork
+        if artwork:
+            art.add([endpoint.Buffer(distance).GetBoundary()], '--k')
+            art.add([endpoint], 'ob')
+
+        # Determine nodes and projections per endpoint
+        nodes = []
+        projections = []
+        layer.SetSpatialFilter(endpoint.Buffer(distance))
+        for target_geometry in get_layer_geometries(layer):
+            if endpoint.Buffer(INTERSECT_TOLERANCE).Intersects(target_geometry):
                 # This is probably points own feature, leave it out.
                 continue
-            for target_geometry in get_feature_geometries(target_feature):
-                target_points.extend(target_geometry.GetPoints())
-                #img.add([target_geometry], 'b')
-        
+            
+            # Artwork
+            if artwork:
+                art.add([target_geometry], 'k')
+
+            nodes.extend(target_geometry.GetPoints())
+            projections.extend(get_projections(endpoint, target_geometry))
+
+            # Artwork
+            if artwork:
+                art.add(map(point2geometry, nodes), 'og')
+                art.add(map(point2geometry, projections), 'oc')
+
+        # Determine possible snapline for this endpoint
+        target_points = nodes + projections
         if target_points:
             interpolator = interpolate.NearestNDInterpolator(
                 np.array(target_points), np.array(target_points),
             )
-            nearest_point = interpolator(point.GetPoints())[0]
-            snap_geometry = line2geometry([point.GetPoint_2D(), nearest_point])
-            
-            #img.add(point2geometry(nearest_point).Buffer(2), 'g')
-            #img.add([snap_geometry], 'm')
-            
-            yield snap_geometry
-        #img.show()
+            nearest_point = interpolator(endpoint.GetPoints())[0]
+            endpoint_snapline = (endpoint.GetPoint_2D(),
+                                 nearest_point.tolist())
+            snaplines.append(endpoint_snapline)
+
+            # Artwork
+            if artwork:
+                art.add([line2geometry(endpoint_snapline)], ':g')
+        
+
+    if snaplines:
+        # Determine shortest snapline
+        snaparray = np.array(snaplines)
+        snapvectors = snaparray[:, 1, :] - snaparray[:, 0, :]
+        snaplengths = np.sqrt((snapvectors ** 2).sum(1))
+        index = np.where(np.equal(snaplengths, snaplengths.min()))
+        snapgeometry = line2geometry(snaparray[index][0])
+        
+        # Artwork
+        if artwork:
+            art.add([snapgeometry], 'm')
+            art.get().save('artwork{:04.0f}.png'.format(artwork))
+
+        return snapgeometry
 
 
 def snap(network_path, loose_path, target_path, distance):
@@ -162,24 +227,19 @@ def snap(network_path, loose_path, target_path, distance):
     target_layer = target_dataset.CreateLayer(b'Snapped objects')
     target_layer_definition = target_layer.GetLayerDefn()
 
-    # Count work
-    count = 0
-    for geometry in get_layer_geometries(loose_layer):
-        count += 1
-    indicator = progress.Indicator(count)
-    loose_layer.ResetReading()
-
     # Do the work
-    count = 0
-    for geometry in get_layer_geometries(loose_layer):
-        indicator.update()
-        target_geometries = get_snap_geometries(
-            geometry=geometry, layer=network_layer, distance=distance,
+    indicator = progress.Indicator(loose_layer.GetFeatureCount())
+    artwork = 0
+    for feature in loose_layer:
+        # artwork += 1
+        target_geometry = get_snap_geometry(
+            feature=feature, layer=network_layer, distance=distance, artwork=None
         )
-        for target_geometry in target_geometries:
+        if target_geometry is not None:
             target_feature = ogr.Feature(target_layer_definition)
             target_feature.SetGeometry(target_geometry)
             target_layer.CreateFeature(target_feature)
+        indicator.update()
 
     # Properly close datasets
     network_dataset = None
