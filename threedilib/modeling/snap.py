@@ -56,7 +56,8 @@ def get_args():
                         help=('Path to loose lines shapefile.'))
     parser.add_argument('target_path',
                         metavar='TARGET',
-                        help=('Path to target shapefile. Will be overwritten.'))
+                        help=('Path to target '
+                              'shapefile. Will be overwritten.'))
     parser.add_argument('-d', '--distance',
                         metavar='DISTANCE',
                         type=float,
@@ -149,7 +150,8 @@ def get_projections(point, geometry):
     return projections[online].tolist()
 
 
-def get_snap_geometries(feature, layer, distance, shortest=False, artwork=None):
+def get_snap_geometries(feature, layer, distance,
+                        shortest=False, artwork=None):
     """ Return generator of snapping geometries. """
     # Artwork: Initialize
     if artwork:
@@ -224,9 +226,9 @@ def get_snap_geometries(feature, layer, distance, shortest=False, artwork=None):
                 art.add([snapgeometry], 'm')
 
             yield snapgeometry
-            
+
     if artwork:
-        art.get().save('artwork{:04.0f}.png'.format(artwork))
+        art.get().save('modeling_snap{:04.0f}.png'.format(artwork))
 
 
 def snap(network_path, loose_path,
