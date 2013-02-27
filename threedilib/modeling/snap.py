@@ -7,10 +7,7 @@ from __future__ import absolute_import
 from __future__ import division
 
 import argparse
-import math
 import os
-import shutil
-import tempfile
 
 import numpy as np
 
@@ -44,7 +41,6 @@ class Artwork(object):
         """ Return image object. """
         buf, size = self.axes.figure.canvas.print_to_buffer()
         return Image.fromstring('RGBA', size, buf)
-
 
 
 def get_args():
@@ -104,7 +100,7 @@ def get_feature_geometries(feature):
 
 def get_layer_geometries(layer):
     """
-    Return geometry generator. 
+    Return geometry generator.
 
     Inproper use of this one will definately cause segmentation faults.
     """
@@ -116,7 +112,7 @@ def get_layer_geometries(layer):
 def get_projections(point, geometry):
     """
     Return list of points.
-    
+
     Those points are returned where the projection of point on the
     geometry segment is on the segment itself.
     """
@@ -161,12 +157,13 @@ def get_snap_geometry(feature, layer, distance, artwork=None):
         # Determine nodes and projections per endpoint
         nodes = []
         projections = []
+        endpoint_buffered = endpoint.Buffer(INTERSECT_TOLERANCE)
         layer.SetSpatialFilter(endpoint.Buffer(distance))
         for target_geometry in get_layer_geometries(layer):
-            if endpoint.Buffer(INTERSECT_TOLERANCE).Intersects(target_geometry):
+            if endpoint_buffered.Intersects(target_geometry):
                 # This is probably points own feature, leave it out.
                 continue
-            
+
             # Artwork
             if artwork:
                 art.add([target_geometry], 'k')
@@ -193,7 +190,6 @@ def get_snap_geometry(feature, layer, distance, artwork=None):
             # Artwork
             if artwork:
                 art.add([line2geometry(endpoint_snapline)], ':g')
-        
 
     if snaplines:
         # Determine shortest snapline
@@ -202,7 +198,7 @@ def get_snap_geometry(feature, layer, distance, artwork=None):
         snaplengths = np.sqrt((snapvectors ** 2).sum(1))
         index = np.where(np.equal(snaplengths, snaplengths.min()))
         snapgeometry = line2geometry(snaparray[index][0])
-        
+
         # Artwork
         if artwork:
             art.add([snapgeometry], 'm')
@@ -232,9 +228,10 @@ def snap(network_path, loose_path, target_path, distance):
     artwork = 0
     for feature in loose_layer:
         # artwork += 1
-        target_geometry = get_snap_geometry(
-            feature=feature, layer=network_layer, distance=distance, artwork=None
-        )
+        target_geometry = get_snap_geometry(feature=feature,
+                                            layer=network_layer,
+                                            distance=distance,
+                                            artwork=artwork)
         if target_geometry is not None:
             target_feature = ogr.Feature(target_layer_definition)
             target_feature.SetGeometry(target_geometry)
@@ -245,7 +242,7 @@ def snap(network_path, loose_path, target_path, distance):
     network_dataset = None
     loose_dataset = None
     target_dataset = None
-        
+
 
 def main():
     args = get_args()
