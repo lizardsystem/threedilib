@@ -118,12 +118,12 @@ class ImageWriter(object):
                 (x[i + 1] - x[i])**2 + (y[i + 1] - y[i])**2,
             ))
         # Plot in matplotlib
-        label = '\n'.join([': '.join(item)
+        label = '\n'.join([': '.join(str(v) for v in item)
                            for item in feature.items().items()])
         fig = figure.Figure()
         axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
         axes.plot(l, z, label=label)
-        axes.legend()
+        axes.legend(loc='best', frameon=False)
         # Write to image
         backend_agg.FigureCanvasAgg(fig)
         buf, size = fig.canvas.print_to_buffer()
