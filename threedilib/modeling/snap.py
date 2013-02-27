@@ -56,11 +56,20 @@ def get_args():
                         help=('Path to loose lines shapefile.'))
     parser.add_argument('target_path',
                         metavar='TARGET',
-                        help=('Path to target shapefile.'))
-    parser.add_argument('distance',
+                        help=('Path to target shapefile. Will be overwritten.'))
+    parser.add_argument('-d', '--distance',
                         metavar='DISTANCE',
                         type=float,
+                        default=10,
                         help=('Distance to seek snap points.'))
+    parser.add_argument('-v', '--visualize',
+                        action='store_true',
+                        default=False,
+                        help=('Visualize snapping process in .png images.'))
+    parser.add_argument('-s', '--shortest',
+                        action='store_true',
+                        default=False,
+                        help=('Snap only endpoint with shortest distance.'))
     return vars(parser.parse_args())
 
 
@@ -140,16 +149,16 @@ def get_projections(point, geometry):
     return projections[online].tolist()
 
 
-def get_snap_geometry(feature, layer, distance, artwork=None):
+def get_snap_geometries(feature, layer, distance, shortest=False, artwork=None):
     """ Return generator of snapping geometries. """
-    # Artwork
+    # Artwork: Initialize
     if artwork:
         art = Artwork()
         art.add(get_feature_geometries(feature), 'b')
 
     snaplines = []
     for endpoint in get_endpoints(feature):
-        # Artwork
+        # Artwork: Show endpoint and buffer
         if artwork:
             art.add([endpoint.Buffer(distance).GetBoundary()], '--k')
             art.add([endpoint], 'ob')
@@ -164,14 +173,14 @@ def get_snap_geometry(feature, layer, distance, artwork=None):
                 # This is probably points own feature, leave it out.
                 continue
 
-            # Artwork
+            # Artwork: Show target features to snap with
             if artwork:
                 art.add([target_geometry], 'k')
 
             nodes.extend(target_geometry.GetPoints())
             projections.extend(get_projections(endpoint, target_geometry))
 
-            # Artwork
+            # Artwork: Show nodes and projections for this target feature
             if artwork:
                 art.add(map(point2geometry, nodes), 'og')
                 art.add(map(point2geometry, projections), 'oc')
@@ -187,11 +196,11 @@ def get_snap_geometry(feature, layer, distance, artwork=None):
                                  nearest_point.tolist())
             snaplines.append(endpoint_snapline)
 
-            # Artwork
+            # Artwork: Show snapline for this endpoint
             if artwork:
                 art.add([line2geometry(endpoint_snapline)], ':g')
 
-    if snaplines:
+    if snaplines and shortest:
         # Determine shortest snapline
         snaparray = np.array(snaplines)
         snapvectors = snaparray[:, 1, :] - snaparray[:, 0, :]
@@ -199,15 +208,29 @@ def get_snap_geometry(feature, layer, distance, artwork=None):
         index = np.where(np.equal(snaplengths, snaplengths.min()))
         snapgeometry = line2geometry(snaparray[index][0])
 
-        # Artwork
+        # Artwork: Show definitive snapline
         if artwork:
             art.add([snapgeometry], 'm')
-            art.get().save('artwork{:04.0f}.png'.format(artwork))
 
-        return snapgeometry
+        yield snapgeometry
+
+    else:
+        # Yield any snaplines
+        for snapline in snaplines:
+            snapgeometry = line2geometry(snapline)
+
+            # Artwork: Show definitive snapline
+            if artwork:
+                art.add([snapgeometry], 'm')
+
+            yield snapgeometry
+            
+    if artwork:
+        art.get().save('artwork{:04.0f}.png'.format(artwork))
 
 
-def snap(network_path, loose_path, target_path, distance):
+def snap(network_path, loose_path,
+         target_path, distance, visualize, shortest):
     """ Create connections from loose lines to network. """
     # Open input datasets
     network_dataset = ogr.Open(network_path)
@@ -227,12 +250,13 @@ def snap(network_path, loose_path, target_path, distance):
     indicator = progress.Indicator(loose_layer.GetFeatureCount())
     artwork = 0
     for feature in loose_layer:
-        # artwork += 1
-        target_geometry = get_snap_geometry(feature=feature,
-                                            layer=network_layer,
-                                            distance=distance,
-                                            artwork=artwork)
-        if target_geometry is not None:
+        if visualize:
+            artwork += 1
+        for target_geometry in get_snap_geometries(feature=feature,
+                                                   layer=network_layer,
+                                                   distance=distance,
+                                                   artwork=artwork,
+                                                   shortest=shortest):
             target_feature = ogr.Feature(target_layer_definition)
             target_feature.SetGeometry(target_geometry)
             target_layer.CreateFeature(target_feature)
