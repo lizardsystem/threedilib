@@ -38,7 +38,10 @@ def get_index():
     """ Return index from container or open from config location. """
     key = 'index'
     if key not in cache:
-        dataset = ogr.Open(config.INDEX_PATH)
+    	if os.path.exists(config.INDEX_PATH):
+	    dataset = ogr.Open(config.INDEX_PATH)
+	else:
+	    raise OSError('File not found :{}'.format(config.INDEX_PATH))
         cache[key] = dataset
     return cache[key][0]
 
