@@ -16,6 +16,7 @@ from osgeo import ogr
 import numpy as np
 
 from threedilib.modeling import progress
+from threedilib.modeling import vector
 from threedilib import config
 
 DESCRIPTION = """
@@ -48,6 +49,8 @@ def get_args():
                         help=('Path to target shapefile, to be overwritten.'))
     parser.add_argument('-a', '--attribute',
                         metavar='HEIGHT_ATTRIBUTE',
+                        nargs='?',
+                        const='Height',
                         help=('Create layer per feature and a feature '
                               'per segment, each feature having a height '
                               'attribute with the name <HEIGHT_ATTRIBUTE>.'))
@@ -66,22 +69,22 @@ def get_args():
     return vars(parser.parse_args())
 
 
-def get_vector_and_offset(line):
-    """ Return vector, offset tuple. """
+def get_direction_and_offset(line):
+    """ Return direction, offset tuple. """
     x0, x1 = np.array(line)
     return x1 - x0, x0
 
 
-def parameterize_intersects(cellsize, vector, offset):
+def parameterize_intersects(cellsize, direction, offset):
     """
     Return numpy array of parameters.
 
     Parameters represent start, optional intersections, and end.
     Each parameter can be converted to a point via
-    (parameter * vector + offset)
+    (parameter * direction + offset)
     """
     # Determine extents (two times ceil, because of how np.arange works)
-    points = np.array([offset, offset + vector])
+    points = np.array([offset, offset + direction])
     left, bottom = np.ceil(np.min(points, axis=0) / cellsize) * cellsize
     right, top = np.ceil(np.max(points, axis=0) / cellsize) * cellsize
     # Determine intersections with gridlines
@@ -89,8 +92,8 @@ def parameterize_intersects(cellsize, vector, offset):
     x_intersects = np.arange(left, right, width)
     y_intersects = np.arange(bottom, top, height)
     # Determine parameters corresponding to intersections
-    x_parameters = (x_intersects - offset[0]) / vector[0]
-    y_parameters = (y_intersects - offset[1]) / vector[1]
+    x_parameters = (x_intersects - offset[0]) / direction[0]
+    y_parameters = (y_intersects - offset[1]) / direction[1]
     # Return sorted, distinct parameters, including start and and.
     return tuple(np.sort(np.unique(np.concatenate([(0, 1),
                                                    x_parameters,
@@ -99,13 +102,13 @@ def parameterize_intersects(cellsize, vector, offset):
 
 def segmentize_by_tiles(line):
     """ Return generator of line tuples. """
-    vector, offset = get_vector_and_offset(line)
-    parameters = parameterize_intersects(vector=vector,
+    direction, offset = get_direction_and_offset(line)
+    parameters = parameterize_intersects(direction=direction,
                                          offset=offset,
                                          cellsize=(1000, 1250))
     for i in range(len(parameters) - 1):
-        result = (tuple(offset + vector * parameters[i]),
-                  tuple(offset + vector * parameters[i + 1]))
+        result = (tuple(offset + direction * parameters[i]),
+                  tuple(offset + direction * parameters[i + 1]))
         yield result
 
 
@@ -176,11 +179,12 @@ def pixelize(segment):
     # Determine lines
     geotransform = dataset.GetGeoTransform()
     cellsize = abs(geotransform[1]), abs(geotransform[5])
-    vector, offset = get_vector_and_offset(segment.GetPoints())
-    parameters = parameterize_intersects(vector=vector,
+    direction, offset = get_direction_and_offset(segment.GetPoints())
+    parameters = parameterize_intersects(direction=direction,
                                          offset=offset,
                                          cellsize=cellsize)
-    ends = np.array([offset]) + np.array([vector]) * np.array([parameters]).T
+    offset_array, direction_array = map(np.array, (offset, direction))
+    ends = offset_array + direction_array * np.array([parameters]).T
     lines = np.array([ends[:-1].T, ends[1:].T]).transpose(2, 0, 1)
     points = lines.mean(1)
 
@@ -206,6 +210,7 @@ class AbstractWriter(object):
 
     def __exit__(self, type, value, traceback):
         """ Close dataset. """
+        self.layer = None
         self.dataset = None
 
     def _count(self, dataset):
@@ -218,9 +223,12 @@ class AbstractWriter(object):
             layer.ResetReading()
         return count
 
+
+class CoordinateWriter(AbstractWriter):
+    """ Writes a shapefile with height in z coordinate. """
     def _convert(self, source_geometry):
         """
-        Set target feature's geometry to converted source feature's geometry.
+        Return converted geometry.
         """
         target_geometry = ogr.Geometry(ogr.wkbLineString)
         for i, segment in enumerate(segmentize(source_geometry)):
@@ -243,10 +251,6 @@ class AbstractWriter(object):
                                  float(lines[-1, 1, 1]),
                                  float(values[-1]))
         return target_geometry
-
-
-class CoordinateWriter(AbstractWriter):
-    """ Writes a shapefile with height in z coordinate. """
 
     def _add_layer(self, layer):
         """ Add empty copy of layer. """
@@ -282,9 +286,46 @@ class CoordinateWriter(AbstractWriter):
         dataset = None
 
 
-class AttributeWriter(object):
+class AttributeWriter(AbstractWriter):
     """ Writes a shapefile with height in z attribute. """
-    pass
+    def _convert(self, source_geometry):
+        """
+        Return generator of (geometry, height) tuples.
+        """
+        for i, segment in enumerate(segmentize(source_geometry)):
+            lines, points, values = pixelize(segment)
+            for line, value in zip(lines, values):
+                yield vector.line2geometry(line), str(value)
+            self.indicator.update()
+
+    def _add_layer(self):
+        """ Create a layer with a height attribute. """
+        # Create layer
+        count = self.dataset.GetLayerCount()
+        self.layer = self.dataset.CreateLayer(str(count))
+        # Create attribute field
+        field_definition = ogr.FieldDefn(str(self.attribute), ogr.OFTReal)
+        self.layer.CreateField(field_definition)
+
+    def _add_feature(self, feature):
+        """ Add converted features. """
+        layer_definition = self.layer.GetLayerDefn()
+        generator = self._convert(source_geometry=feature.geometry())
+        for geometry, height in generator:
+            new_feature = ogr.Feature(layer_definition)
+            new_feature[str(self.attribute)] = height
+            new_feature.SetGeometry(geometry)
+            self.layer.CreateFeature(new_feature)
+
+    def add(self, path):
+        """ Convert dataset at path. """
+        dataset = ogr.Open(path)
+        self.indicator = progress.Indicator(self._count(dataset))
+        for layer in dataset:
+            for feature in layer:
+                self._add_layer()
+                self._add_feature(feature)
+        dataset = None
 
 
 def addheight(source_path, target_path, distance, relocate, attribute):
@@ -294,11 +335,11 @@ def addheight(source_path, target_path, distance, relocate, attribute):
     Source and target are both shapefiles.
     """
     Writer = CoordinateWriter if attribute is None else AttributeWriter
-    with Writer(target_path) as writer:
-        writer.add(source_path,
-                   distance=distance,
-                   relocate=relocate,
-                   attribute=attribute)
+    with Writer(target_path,
+                distance=distance,
+                relocate=relocate,
+                attribute=attribute) as writer:
+        writer.add(source_path)
 
 
 def main():
