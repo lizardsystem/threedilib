@@ -87,7 +87,7 @@ class InputFileWriter(object):
     def add_feature(self, feature):
         """ Add feature as nodes and links. """
         geometry = feature.geometry()
-        nodes = geometry.GetPoints()
+        nodes = [geometry.GetPoint(i) for i in range(geometry.GetPointCount())]
         # Add nodes and links up to the last node
         for i in range(len(nodes) - 1):
             self._write_node(nodes[i])
@@ -110,7 +110,8 @@ class ImageWriter(object):
         """ Currently saves every feature in a separate image. """
         # Get data
         geometry = feature.geometry()
-        x, y, z = zip(*geometry.GetPoints())
+        x, y, z = zip(*[geometry.GetPoint(i) 
+                        for i in range(geometry.GetPointCount())])
         # Determine distance along line
         l = [0]
         for i in range(len(z) - 1):
