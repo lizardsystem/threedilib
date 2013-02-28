@@ -12,7 +12,7 @@ import unittest
 from threedilib.modeling import vector
 
 
-class TestVectorOps(unittest.TestCase):
+class TestVector(unittest.TestCase):
     ''' Testing Test functions '''
 
     def setUp(self):
@@ -21,4 +21,5 @@ class TestVectorOps(unittest.TestCase):
     def test_line2geometry(self):
         line = [(0, 0), (1, 1)]
         geometry = vector.line2geometry(line)
-        self.assertEqual(line, geometry.GetPoints())
+        self.assertEqual(line, [geometry.GetPoint_2D(i)
+                                for i in range(geometry.GetPointCount())])
