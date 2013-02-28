@@ -18,8 +18,8 @@ from osgeo import ogr
 from PIL import Image
 
 
-def get_args():
-    """ Return arguments dictionary. """
+def get_parser():
+    """ Return argument parser. """
     parser = argparse.ArgumentParser(
         description='Convert shapefiles with Z components.',
     )
@@ -34,7 +34,7 @@ def get_args():
                         choices=['inp', 'img'],
                         default='inp',
                         help=("Input file 'inp' or image 'img'"))
-    return vars(parser.parse_args())
+    return parser
 
 
 class InputFileWriter(object):
@@ -149,8 +149,8 @@ def convert(source_path, target_path, output_format):
 
 
 def main():
-    args = get_args()
-    convert(**args)
+    """ Call convert() with commandline args. """
+    convert(**vars(get_parser().parse_args()))
 
 
 if __name__ == '__main__':

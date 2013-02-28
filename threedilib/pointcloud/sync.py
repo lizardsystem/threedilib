@@ -101,7 +101,7 @@ def sync(dml):
 
 
 def main():
-    """ Calls addheight function with args from commandline. """
+    """ Call sync() with commandline args. """
     sql = sync(**vars(get_parser().parse_args()))
     for line in sql:
         sys.stdout.write(line)
