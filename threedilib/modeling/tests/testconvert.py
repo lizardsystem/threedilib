@@ -49,10 +49,10 @@ class TestConvert(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.temp_dir)
 
+
 class TestParser(unittest.TestCase):
     """ Test parser. """
     def test_parser(self):
         parser = convert.get_parser()
         args = vars(parser.parse_args(['foo', 'bar']))
         self.assertEqual(args['output_format'], 'inp')
-

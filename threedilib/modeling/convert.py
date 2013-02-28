@@ -110,7 +110,7 @@ class ImageWriter(object):
         """ Currently saves every feature in a separate image. """
         # Get data
         geometry = feature.geometry()
-        x, y, z = zip(*[geometry.GetPoint(i) 
+        x, y, z = zip(*[geometry.GetPoint(i)
                         for i in range(geometry.GetPointCount())])
         # Determine distance along line
         l = [0]
