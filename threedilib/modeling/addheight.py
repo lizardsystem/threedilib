@@ -189,76 +189,102 @@ def pixelize(segment):
     return lines, points, values
 
 
-def get_target_dataset(path):
-    """
-    Return ogr dataset.
+class AbstractWriter(object):
+    """ Base class for common writer methods. """
+    def __init__(self, path, **kwargs):
+        self.path = path
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
-    delete dataset at path if it exists.
-    """
-    # driver = ogr.GetDriverByName(b'Memory')
-    driver = ogr.GetDriverByName(b'ESRI Shapefile')
-    if os.path.exists(path):
-        driver.DeleteDataSource(str(path))
+    def __enter__(self):
+        """ Creates or replaces the target shapefile. """
+        driver = ogr.GetDriverByName(b'ESRI Shapefile')
+        if os.path.exists(self.path):
+            driver.DeleteDataSource(str(self.path))
+        self.dataset = driver.CreateDataSource(str(self.path))
+        return self
 
-    dataset = driver.CreateDataSource(str(path))
-    return dataset
+    def __exit__(self, type, value, traceback):
+        """ Close dataset. """
+        self.dataset = None
+
+    def _count(self, dataset):
+        """ Return amount of updates expected for progress indicator. """
+        count = 0
+        for layer in dataset:
+            for feature in layer:
+                for segment in segmentize(feature.geometry()):
+                    count += 1
+            layer.ResetReading()
+        return count
+
+    def _convert(self, source_geometry):
+        """
+        Set target feature's geometry to converted source feature's geometry.
+        """
+        target_geometry = ogr.Geometry(ogr.wkbLineString)
+        for i, segment in enumerate(segmentize(source_geometry)):
+            lines, points, values = pixelize(segment)
+
+            # Add first point of the first line if this is the first segment
+            if i == 0:
+                target_geometry.AddPoint(float(lines[0, 0, 0]),
+                                         float(lines[0, 0, 1]),
+                                         float(values[0]))
+
+            # Add the rest of the points (x, y) and values (z)
+            for (x, y), z in zip(points, values):
+                target_geometry.AddPoint(float(x), float(y), float(z))
+
+            self.indicator.update()
+
+        # Add the last point of the last line of the last segment
+        target_geometry.AddPoint(float(lines[-1, 1, 0]),
+                                 float(lines[-1, 1, 1]),
+                                 float(values[-1]))
+        return target_geometry
 
 
-def get_target_layer(target_dataset, source_layer):
-    """
-    Return layer.
+class CoordinateWriter(AbstractWriter):
+    """ Writes a shapefile with height in z coordinate. """
 
-    Adds an empty layer with same definition as source layer on target dataset.
-    """
-    target_layer = target_dataset.CreateLayer(source_layer.GetName())
+    def _add_layer(self, layer):
+        """ Add empty copy of layer. """
+        # Create layer
+        self.layer = self.dataset.CreateLayer(layer.GetName())
+        # Copy field definitions
+        layer_definition = layer.GetLayerDefn()
+        for i in range(layer_definition.GetFieldCount()):
+            self.layer.CreateField(layer_definition.GetFieldDefn(i))
 
-    # Copy field definitions
-    source_layer_definition = source_layer.GetLayerDefn()
-    for i in range(source_layer_definition.GetFieldCount()):
-        target_layer.CreateField(source_layer_definition.GetFieldDefn(i))
-    return target_layer
+    def _add_feature(self, feature):
+        """ Add converted feature. """
+        # Create feature
+        layer_definition = self.layer.GetLayerDefn()
+        new_feature = ogr.Feature(layer_definition)
+        # Copy attributes
+        for key, value in feature.items().items():
+            new_feature[key] = value
+        # Set converted geometry
+        geometry = self._convert(source_geometry=feature.geometry())
+        new_feature.SetGeometry(geometry)
+        # Add to layer
+        self.layer.CreateFeature(new_feature)
+
+    def add(self, path, **kwargs):
+        """ Convert dataset at path. """
+        dataset = ogr.Open(path)
+        self.indicator = progress.Indicator(self._count(dataset))
+        for layer in dataset:
+            self._add_layer(layer)
+            for feature in layer:
+                self._add_feature(feature)
+        dataset = None
 
 
-def get_target_feature(target_layer, source_feature):
-    """
-    Return feature.
-
-    Adds empty feature with same attributes as source feature to target layer.
-    """
-    target_layer_definition = target_layer.GetLayerDefn()
-    target_feature = ogr.Feature(target_layer_definition)
-
-    target_feature = ogr.Feature(target_layer_definition)
-    for key, value in source_feature.items().items():
-        target_feature[key] = value
-    return target_feature
-
-
-def convert_geometry(source_geometry, distance, indicator):
-    """
-    Set target feature's geometry to converted source feature's geometry.
-    """
-    target_geometry = ogr.Geometry(ogr.wkbLineString)
-    for i, segment in enumerate(segmentize(source_geometry)):
-        lines, points, values = pixelize(segment)
-
-        # Add first point of the first line if this is the first segment
-        if i == 0:
-            target_geometry.AddPoint(float(lines[0, 0, 0]),
-                                     float(lines[0, 0, 1]),
-                                     float(values[0]))
-
-        # Add the rest of the points (x, y) and values (z)
-        for (x, y), z in zip(points, values):
-            target_geometry.AddPoint(float(x), float(y), float(z))
-
-        indicator.update()
-
-    # Add the last point of the last line of the last segment
-    target_geometry.AddPoint(float(lines[-1, 1, 0]),
-                             float(lines[-1, 1, 1]),
-                             float(values[-1]))
-    return target_geometry
+class AttributeWriter(object):
+    """ Writes a shapefile with height in z attribute. """
+    pass
 
 
 def addheight(source_path, target_path, distance, relocate, attribute):
@@ -267,35 +293,12 @@ def addheight(source_path, target_path, distance, relocate, attribute):
 
     Source and target are both shapefiles.
     """
-    # Open datasets
-    source_dataset = ogr.Open(source_path)
-    target_dataset = get_target_dataset(target_path)
-
-    # Count work
-    count = 0
-    for source_layer in source_dataset:
-        for source_feature in source_layer:
-            for segment in segmentize(source_feature.geometry()):
-                count += 1
-        source_layer.ResetReading()
-    indicator = progress.Indicator(count)
-
-    for source_layer in source_dataset:
-        target_layer = get_target_layer(target_dataset, source_layer)
-
-        for source_feature in source_layer:
-            source_geometry = source_feature.geometry()
-            target_geometry = convert_geometry(source_geometry=source_geometry,
-                                               distance=distance,
-                                               indicator=indicator)
-
-            target_feature = get_target_feature(target_layer, source_feature)
-            target_feature.SetGeometry(target_geometry)
-            target_layer.CreateFeature(target_feature)
-
-    # Close the datasets
-    source_dataset = None
-    target_dataset = None
+    Writer = CoordinateWriter if attribute is None else AttributeWriter
+    with Writer(target_path) as writer:
+        writer.add(source_path,
+                   distance=distance,
+                   relocate=relocate,
+                   attribute=attribute)
 
 
 def main():
