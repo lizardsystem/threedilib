@@ -15,7 +15,7 @@ import subprocess
 from threedilib import config
 
 SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
-SUBUNIT = re.compile('^(?P<subunit>[0-9]{2}[a-z][a-z][0-9])\.tar\.gz$')
+SUBUNIT = re.compile('^(?P<subunit>[0-9]{2}[a-z][a-z][0-9])\.tar\.(gz|xz)$')
 
 
 def get_args():
