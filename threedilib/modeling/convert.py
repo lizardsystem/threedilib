@@ -139,7 +139,7 @@ class ImageWriter(object):
 def convert(source_path, target_path, output_format):
     """ Convert shapefile to inp file."""
 
-    source_dataset = ogr.Open(source_path)
+    source_dataset = ogr.Open(str(source_path))
 
     writers = dict(inp=InputFileWriter, img=ImageWriter)
     with writers[output_format](target_path) as writer:
