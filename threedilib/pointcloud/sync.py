@@ -17,13 +17,14 @@ SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
 SUBUNIT = re.compile('^(?P<subunit>[0-9]{2}[a-z][a-z][0-9])\.tar\.(gz|xz)$')
 
 
-def get_args():
+def get_parser():
+    """ Return argument parser. """
     parser = argparse.ArgumentParser(
         description='Usage: command query | psql | command update | psql')
     parser.add_argument('dml',
                         choices=['create', 'select', 'update', 'drop'],
                         help=(''))
-    return vars(parser.parse_args())
+    return parser
 
 
 class Dml(object):
@@ -94,9 +95,14 @@ class Dml(object):
             yield template_insert.format(table=table, leafno=leafno)
 
 
+def sync(dml):
+    """ Return sql generator. """
+    return getattr(Dml(), dml)()  # Weird code.
+
+
 def main():
-    args = get_args()
-    sql = getattr(Dml(), args['dml'])()  # Weird code.
+    """ Calls addheight function with args from commandline. """
+    sql = sync(**vars(get_parser().parse_args()))
     for line in sql:
         sys.stdout.write(line)
 
