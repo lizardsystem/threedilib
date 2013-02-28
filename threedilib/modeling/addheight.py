@@ -34,18 +34,6 @@ DESCRIPTION = """
 SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
 
 
-def get_index():
-    """ Return index from container or open from config location. """
-    key = 'index'
-    if key not in cache:
-    	if os.path.exists(config.INDEX_PATH):
-	    dataset = ogr.Open(config.INDEX_PATH)
-	else:
-	    raise OSError('File not found :{}'.format(config.INDEX_PATH))
-        cache[key] = dataset
-    return cache[key][0]
-
-
 def get_args():
     """ Return arguments dictionary. """
     parser = argparse.ArgumentParser(
@@ -58,6 +46,23 @@ def get_args():
     parser.add_argument('target_path',
                         metavar='TARGET',
                         help=('Path to target shapefile, to be overwritten.'))
+    parser.add_argument('-a', '--attribute',
+                        metavar='HEIGHT_ATTRIBUTE',
+                        help=('Create layer per feature and a feature '
+                              'per segment, each feature having a height '
+                              'attribute with the name <HEIGHT_ATTRIBUTE>.'))
+    parser.add_argument('-d', '--distance',
+                        metavar='DISTANCE',
+                        type=float,
+                        help=('Distance to look perpendicular to the '
+                              'segments to find the highest points '
+                              'on the height map. Disabled by default.'))
+    parser.add_argument('-r', '--relocate',
+                        metavar='RELOCATE',
+                        type=float,
+                        help=('Modify the line to follow the '
+                              'highest points on the height map.'))
+
     return vars(parser.parse_args())
 
 
@@ -118,6 +123,18 @@ def segmentize(linestring):
             segment.AddPoint_2D(x0, y0)
             segment.AddPoint_2D(x1, y1)
             yield segment
+
+
+def get_index():
+    """ Return index from container or open from config location. """
+    key = 'index'
+    if key not in cache:
+        if os.path.exists(config.INDEX_PATH):
+            dataset = ogr.Open(config.INDEX_PATH)
+        else:
+            raise OSError('File not found :{}'.format(config.INDEX_PATH))
+        cache[key] = dataset
+    return cache[key][0]
 
 
 def get_dataset(leaf):
@@ -217,7 +234,7 @@ def get_target_feature(target_layer, source_feature):
     return target_feature
 
 
-def convert_geometry(source_geometry, indicator):
+def convert_geometry(source_geometry, distance, indicator):
     """
     Set target feature's geometry to converted source feature's geometry.
     """
@@ -244,7 +261,7 @@ def convert_geometry(source_geometry, indicator):
     return target_geometry
 
 
-def addheight(source_path, target_path):
+def addheight(source_path, target_path, distance, relocate, attribute):
     """
     Take linestrings from source and create target with height added.
 
@@ -268,7 +285,9 @@ def addheight(source_path, target_path):
 
         for source_feature in source_layer:
             source_geometry = source_feature.geometry()
-            target_geometry = convert_geometry(source_geometry, indicator)
+            target_geometry = convert_geometry(source_geometry=source_geometry,
+                                               distance=distance,
+                                               indicator=indicator)
 
             target_feature = get_target_feature(target_layer, source_feature)
             target_feature.SetGeometry(target_geometry)
