@@ -9,8 +9,7 @@ from __future__ import division
 import os
 import re
 import sys
-import argparse 
-import subprocess
+import argparse
 
 from threedilib import config
 
@@ -33,7 +32,7 @@ class Dml(object):
     """
     def create(self):
         """ Return create sql. """
-        table=config.POINTCLOUD_TABLE
+        table = config.POINTCLOUD_TABLE
         template = """
             CREATE TABLE "{table}" (
                 "leafno" varchar(9) NOT NULL
@@ -44,7 +43,7 @@ class Dml(object):
 
     def drop(self):
         """ Return delete sql. """
-        table=config.POINTCLOUD_TABLE
+        table = config.POINTCLOUD_TABLE
         template = """
             DROP TABLE "{table}"
             ;
@@ -53,11 +52,11 @@ class Dml(object):
 
     def select(self):
         """ Return select sql. """
-        table=config.POINTCLOUD_TABLE
+        table = config.POINTCLOUD_TABLE
         template = """
             SELECT
                 leafno
-            FROM 
+            FROM
                 "{table}"
             ;
         """
@@ -65,11 +64,11 @@ class Dml(object):
 
     def update(self):
         """ Return update sql. """
-        table=config.POINTCLOUD_TABLE
+        table = config.POINTCLOUD_TABLE
         # Check what's in database
         in_database = []
         for line in sys.stdin:
-            
+
             match = SHEET.match(line.strip())
             if match:
                 in_database.append(match.string)
@@ -88,12 +87,12 @@ class Dml(object):
         template_delete = """DELETE FROM "{table}" WHERE leafno='{leafno}';"""
         for leafno in set(in_database) - set(in_pointcloud_dir):
             yield template_delete.format(table=table, leafno=leafno)
-        
+
         # Yield insert sql
         template_insert = """INSERT INTO "{table}" VALUES ('{leafno}');"""
         for leafno in set(in_pointcloud_dir) - set(in_database):
             yield template_insert.format(table=table, leafno=leafno)
-                
+
 
 def main():
     args = get_args()

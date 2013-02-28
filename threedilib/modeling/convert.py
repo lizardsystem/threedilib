@@ -76,7 +76,7 @@ class InputFileWriter(object):
         self.node_file.write('{} {} {} {}\n'.format(
             self.node_count, node[0], node[1], -node[2]  # Depth, not height!
         ))
-    
+
     def _write_link(self):
         """ Write a link between previous node and next node."""
         self.link_count += 1

@@ -14,8 +14,10 @@ BUILDOUT_DIR = os.path.join(
 )
 
 # Modeling: Addheight
-INDEX_PATH = os.path.join(BUILDOUT_DIR, 'var', 'index', 'ahn2_05_int_index.shp')
-AHN_PATH = os.path.join(BUILDOUT_DIR, 'var', 'ahn')
+INDEX_PATH = os.path.join(BUILDOUT_DIR,
+                          'var', 'index', 'ahn2_05_int_index.shp')
+AHN_PATH = os.path.join(BUILDOUT_DIR,
+                        'var', 'ahn')
 
 # Pointcloud: Sync
 POINTCLOUD_DIR = os.path.join(BUILDOUT_DIR, 'var', 'pointcloud')
