@@ -20,22 +20,45 @@ from threedilib.modeling import vector
 from threedilib import config
 
 DESCRIPTION = """
-    Convert a shapefile containing 2D linestrings to a shapefile
-    containing 3D linestrings where the third coordinate is the height
-    according to the a resolution height map. Each line is segmentized
-    in lines that span exactly one pixel of the height map, after which
+    Convert a shapefile containing 2D linestrings to a shapefile with
+    embedded elevation from an elevation map
+
+    Target shapefile can have two layouts: A 'point' layout where the
+    elevation is stored in the third coordinate of a 3D linstring, and
+    a 'line' layout where a separate feature is created in the target
+    shapefile for each segment of each feature in the source shapefile,
+    with two extra attributes compared to the original shapefile, one
+    to store the elevation, and another to store an arbitrary feature
+    id referring to the source feature in the source shapefile.
+
+    In the simplest mode 'fixed' the horizontal geometry is not altered
+    and the elevation at the line is used. In 'range' mode the maximum
+    elevation is taken from a line perpendicular to the linestring. In
+    'change' mode, the horizontal geometry is adjusted to match the
+    maxima as found by the 'range' mode.
+
+    containing 3D linestrings where the third coordinate is the elevation
+    according to the a resolution elevation map. Each line is segmentized
+    in lines that span exactly one pixel of the elevation map, after which
     the midpoint of these lines becomes an 3D point in the resulting line.
 
     For the script to work, a configuration variable AHN_PATH must be
     set in threedilib/localconfig.py pointing to the location of the
-    height map, and a variable INDEX_PATH pointing to the .shp file that
-    contains the index to the heightmap.
+    elevation map, and a variable INDEX_PATH pointing to the .shp file
+    that contains the index to the elevation map.
 """
+
+MODE_FIXED = 'simple'
+MODE_RANGE = 'range'
+MODE_CHANGE = 'change'
+
+LAYOUT_POINT = 'point'
+LAYOUT_LINE = 'line'
 
 SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
 
 
-def get_args():
+def get_parser():
     """ Return arguments dictionary. """
     parser = argparse.ArgumentParser(
         description=DESCRIPTION,
@@ -43,30 +66,40 @@ def get_args():
     )
     parser.add_argument('source_path',
                         metavar='SOURCE',
-                        help=('Path to shapefile with 2D linestrings.'))
+                        help='Path to shapefile with 2D linestrings.')
     parser.add_argument('target_path',
                         metavar='TARGET',
-                        help=('Path to target shapefile, to be overwritten.'))
-    parser.add_argument('-a', '--attribute',
-                        metavar='HEIGHT_ATTRIBUTE',
-                        nargs='?',
-                        const='Height',
-                        help=('Create layer per feature and a feature '
-                              'per segment, each feature having a height '
-                              'attribute with the name <HEIGHT_ATTRIBUTE>.'))
+                        help='Path to target shapefile.')
+    parser.add_argument('-o', '--overwrite',
+                        action='store_true',
+                        help='Overwrite TARGET if it exists.')
+    parser.add_argument('-l', '--layout',
+                        metavar='LAYOUT',
+                        choices=[LAYOUT_POINT, LAYOUT_LINE],
+                        default=LAYOUT_POINT,
+                        help="Target shapefile layout.")
+    parser.add_argument('-m', '--mode',
+                        metavar='MODE',
+                        choices=[MODE_FIXED, MODE_RANGE, MODE_CHANGE],
+                        default=MODE_FIXED,
+                        help="Mode of geometry finding.")
+    parser.add_argument('-f', '--feature-id-attribute',
+                        metavar='FEATURE_ID_ATTRIBUTE',
+                        default='_feat_id',
+                        help='Attribute name for the feature id.')
+    parser.add_argument('-e', '--elevation-attribute',
+                        metavar='ELEVATION_ATTRIBUTE',
+                        default='_elevation',
+                        help='Attribute name for the elevation.')
     parser.add_argument('-d', '--distance',
                         metavar='DISTANCE',
                         type=float,
-                        help=('Distance to look perpendicular to the '
-                              'segments to find the highest points '
-                              'on the height map. Disabled by default.'))
-    parser.add_argument('-r', '--relocate',
-                        metavar='RELOCATE',
-                        type=float,
-                        help=('Modify the line to follow the '
-                              'highest points on the height map.'))
-
-    return vars(parser.parse_args())
+                        default=10,
+                        help=('Distance (left-to-right) to look '
+                              'perpendicular to the segments to '
+                              'find the highest points on the '
+                              'elevation map. Disabled by default.'))
+    return parser
 
 
 def get_direction_and_offset(line):
@@ -223,6 +256,15 @@ class AbstractWriter(object):
             layer.ResetReading()
         return count
 
+    def _add_layer(self, layer):
+        """ Add empty copy of layer. """
+        # Create layer
+        self.layer = self.dataset.CreateLayer(layer.GetName())
+        # Copy field definitions
+        layer_definition = layer.GetLayerDefn()
+        for i in range(layer_definition.GetFieldCount()):
+            self.layer.CreateField(layer_definition.GetFieldDefn(i))
+
 
 class CoordinateWriter(AbstractWriter):
     """ Writes a shapefile with height in z coordinate. """
@@ -252,15 +294,6 @@ class CoordinateWriter(AbstractWriter):
                                  float(values[-1]))
         return target_geometry
 
-    def _add_layer(self, layer):
-        """ Add empty copy of layer. """
-        # Create layer
-        self.layer = self.dataset.CreateLayer(layer.GetName())
-        # Copy field definitions
-        layer_definition = layer.GetLayerDefn()
-        for i in range(layer_definition.GetFieldCount()):
-            self.layer.CreateField(layer_definition.GetFieldDefn(i))
-
     def _add_feature(self, feature):
         """ Add converted feature. """
         # Create feature
@@ -269,10 +302,9 @@ class CoordinateWriter(AbstractWriter):
         # Copy attributes
         for key, value in feature.items().items():
             new_feature[key] = value
-        # Set converted geometry
+        # Set geometry and add to layer
         geometry = self._convert(source_geometry=feature.geometry())
         new_feature.SetGeometry(geometry)
-        # Add to layer
         self.layer.CreateFeature(new_feature)
 
     def add(self, path, **kwargs):
@@ -298,22 +330,27 @@ class AttributeWriter(AbstractWriter):
                 yield vector.line2geometry(line), str(value)
             self.indicator.update()
 
-    def _add_layer(self):
-        """ Create a layer with a height attribute. """
-        # Create layer
-        count = self.dataset.GetLayerCount()
-        self.layer = self.dataset.CreateLayer(str(count))
-        # Create attribute field
-        field_definition = ogr.FieldDefn(str(self.attribute), ogr.OFTReal)
-        self.layer.CreateField(field_definition)
+    def _add_fields(self):
+        """ Create extra fields. """
+        for name, kind in ((str(self.elevation_attribute), ogr.OFTReal),
+                           (str(self.feature_id_attribute), ogr.OFTInteger)):
+            definition = ogr.FieldDefn(name, kind)
+            self.layer.CreateField(definition)
 
-    def _add_feature(self, feature):
+    def _add_feature(self, feature_id, feature):
         """ Add converted features. """
         layer_definition = self.layer.GetLayerDefn()
         generator = self._convert(source_geometry=feature.geometry())
-        for geometry, height in generator:
+        for geometry, elevation in generator:
+            # Create feature
             new_feature = ogr.Feature(layer_definition)
-            new_feature[str(self.attribute)] = height
+            # Copy attributes
+            for key, value in feature.items().items():
+                new_feature[key] = value
+            # Add special attributes
+            new_feature[str(self.elevation_attribute)] = elevation
+            new_feature[str(self.feature_id_attribute)] = feature_id
+            # Set geometry and add to layer
             new_feature.SetGeometry(geometry)
             self.layer.CreateFeature(new_feature)
 
@@ -322,30 +359,38 @@ class AttributeWriter(AbstractWriter):
         dataset = ogr.Open(path)
         self.indicator = progress.Indicator(self._count(dataset))
         for layer in dataset:
-            for feature in layer:
-                self._add_layer()
-                self._add_feature(feature)
+            self._add_layer(layer)
+            self._add_fields()
+            for feature_id, feature in enumerate(layer):
+                self._add_feature(feature_id=feature_id, feature=feature)
         dataset = None
 
 
-def addheight(source_path, target_path, distance, relocate, attribute):
+def addheight(source_path, target_path, overwrite,
+              layout, mode, distance,
+              elevation_attribute, feature_id_attribute):
     """
     Take linestrings from source and create target with height added.
 
     Source and target are both shapefiles.
     """
-    Writer = CoordinateWriter if attribute is None else AttributeWriter
+    if os.path.exists(target_path) and not overwrite:
+        print('{} already exists. Use --overwrite.'.format(target_path))
+        return 1
+
+    Writer = CoordinateWriter if layout == LAYOUT_POINT else AttributeWriter
     with Writer(target_path,
+                mode=mode,
                 distance=distance,
-                relocate=relocate,
-                attribute=attribute) as writer:
+                elevation_attribute=elevation_attribute,
+                feature_id_attribute=feature_id_attribute) as writer:
         writer.add(source_path)
+    return 0
 
 
 def main():
-    """ Calls addheight function with args from commandline. """
-    args = get_args()
-    addheight(**args)
+    """ Call addheight() with commandline args. """
+    addheight(**vars(get_parser().parse_args()))
 
 
 cache = {}  # Contains leafno's and the index
