@@ -57,6 +57,9 @@ LAYOUT_LINE = 'line'
 
 SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
 
+import collections
+Dataset = collections.namedtuple('Dataset', ['geotransform', 'data'])
+
 
 def get_parser():
     """ Return arguments dictionary. """
@@ -179,25 +182,30 @@ def get_dataset(leaf):
     if leafno in cache:
         return cache[leafno]
 
-    for key in cache.keys():
-        del cache[key]  # Maybe unnecessary, see top and lsof.
+    if len(cache) > 10:
+        for key in cache.keys():
+            if SHEET.match(key):
+                del cache[key]  # Maybe unnecessary, see top and lsof.
 
     # Add to cache and return.
     unit = SHEET.match(leafno).group('unit')
     path = os.path.join(config.AHN_PATH, unit, leafno + '.tif')
-    cache[leafno] = gdal.Open(path)
+    dataset = gdal.Open(path)
+    cache[leafno] = Dataset(data=dataset.ReadAsArray(),
+                            geotransform=dataset.GetGeoTransform())
+    dataset = None
     return cache[leafno]
 
 
 def get_values(dataset, points):
     """ Return the height from dataset. """
-    geotransform = np.array(dataset.GetGeoTransform())
+    geotransform = np.array(dataset.geotransform)
     cellsize = geotransform[np.array([[1, 5]])]  # Note no abs() now!
     origin = geotransform[np.array([[0, 3]])]
     # Make indices
     indices = tuple(np.int64((points - origin) / cellsize).T)[::-1]
     # Use indices to query the data
-    return dataset.ReadAsArray()[indices]
+    return dataset.data[indices]
 
 
 def pixelize(segment):
@@ -210,7 +218,7 @@ def pixelize(segment):
     leaf = index.GetNextFeature()
     dataset = get_dataset(leaf)
     # Determine lines
-    geotransform = dataset.GetGeoTransform()
+    geotransform = dataset.geotransform
     cellsize = abs(geotransform[1]), abs(geotransform[5])
     direction, offset = get_direction_and_offset(segment.GetPoints())
     parameters = parameterize_intersects(direction=direction,
