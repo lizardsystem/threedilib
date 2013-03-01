@@ -31,26 +31,11 @@ DESCRIPTION = """
     to store the elevation, and another to store an arbitrary feature
     id referring to the source feature in the source shapefile.
 
-    In the simplest mode 'fixed' the horizontal geometry is not altered
-    and the elevation at the line is used. In 'range' mode the maximum
-    elevation is taken from a line perpendicular to the linestring. In
-    'change' mode, the horizontal geometry is adjusted to match the
-    maxima as found by the 'range' mode.
-
-    containing 3D linestrings where the third coordinate is the elevation
-    according to the a resolution elevation map. Each line is segmentized
-    in lines that span exactly one pixel of the elevation map, after which
-    the midpoint of these lines becomes an 3D point in the resulting line.
-
     For the script to work, a configuration variable AHN_PATH must be
     set in threedilib/localconfig.py pointing to the location of the
     elevation map, and a variable INDEX_PATH pointing to the .shp file
     that contains the index to the elevation map.
 """
-
-MODE_FIXED = 'simple'
-MODE_RANGE = 'range'
-MODE_CHANGE = 'change'
 
 LAYOUT_POINT = 'point'
 LAYOUT_LINE = 'line'
@@ -76,16 +61,22 @@ def get_parser():
     parser.add_argument('-o', '--overwrite',
                         action='store_true',
                         help='Overwrite TARGET if it exists.')
+    parser.add_argument('-d', '--distance',
+                        metavar='DISTANCE',
+                        type=float,
+                        default=0,
+                        help=('Distance (half-width) to look '
+                              'perpendicular to the segments to '
+                              'find the highest points on the '
+                              'elevation map. Defaults to 0.0.'))
+    parser.add_argument('-m', '--modify',
+                        action='store_true',
+                        help='Change horizontal geometry.')
     parser.add_argument('-l', '--layout',
                         metavar='LAYOUT',
                         choices=[LAYOUT_POINT, LAYOUT_LINE],
                         default=LAYOUT_POINT,
                         help="Target shapefile layout.")
-    parser.add_argument('-m', '--mode',
-                        metavar='MODE',
-                        choices=[MODE_FIXED, MODE_RANGE, MODE_CHANGE],
-                        default=MODE_FIXED,
-                        help="Mode of geometry finding.")
     parser.add_argument('-f', '--feature-id-attribute',
                         metavar='FEATURE_ID_ATTRIBUTE',
                         default='_feat_id',
@@ -94,21 +85,106 @@ def get_parser():
                         metavar='ELEVATION_ATTRIBUTE',
                         default='_elevation',
                         help='Attribute name for the elevation.')
-    parser.add_argument('-d', '--distance',
-                        metavar='DISTANCE',
-                        type=float,
-                        default=10,
-                        help=('Distance (half-width) to look '
-                              'perpendicular to the segments to '
-                              'find the highest points on the '
-                              'elevation map. Disabled by default.'))
     return parser
+
+
+def get_index():
+    """ Return index from container or open from config location. """
+    key = 'index'
+    if key not in cache:
+        if os.path.exists(config.INDEX_PATH):
+            dataset = ogr.Open(config.INDEX_PATH)
+        else:
+            raise OSError('File not found :{}'.format(config.INDEX_PATH))
+        cache[key] = dataset
+    return cache[key][0]
+
+
+def get_dataset(leaf):
+    """ Return gdal_dataset from cache or file. """
+    leafno = leaf[b'BLADNR']
+    if leafno in cache:
+        return cache[leafno]
+
+    if len(cache) > 10:
+        for key in cache.keys():
+            if SHEET.match(key):
+                del cache[key]  # Maybe unnecessary, see top and lsof.
+
+    # Add to cache and return.
+    unit = SHEET.match(leafno).group('unit')
+    path = os.path.join(config.AHN_PATH, unit, leafno + '.tif')
+    dataset = gdal.Open(path)
+    cache[leafno] = Dataset(data=dataset.ReadAsArray(),
+                            geotransform=dataset.GetGeoTransform())
+    dataset = None
+    return cache[leafno]
 
 
 def get_direction_and_offset(line):
     """ Return direction, offset tuple. """
     x0, x1 = np.array(line)
     return x1 - x0, x0
+
+
+class LineString(object):
+    """
+    LineString with handy parameterization and projection properties.
+    """
+    def __init__(self, points):
+        self.points = np.array(points)
+        self.length = len(points) - 1
+        #self.extent = (points[:, 0].min(),
+                       #points[:, 1].min(),
+                       #points[:, 1].max(),
+                       #points[:, 1].max())
+        # Setup crucial views
+        self.p = self.points[:-1]
+        self.q = self.points[1:]
+        self.v = self.q - self.p
+
+    def __len__(self):
+        return self.v.shape[1]
+
+    def project(self, points):
+        """
+        Return array of parameters.
+
+        Find closest projection of each point on the linestring.
+        """
+
+    def pixelize(self, size):
+        """
+        Return array of parameters where pixel boundary intersects self.
+        """
+        extent = np.array([self.points.min(0), self.points.max(0)])
+        parameters = []
+        # Loop dimensions for intersection parameters
+        for i in range(extent.shape[-1]):
+            intersects = np.arange(np.ceil(extent[0, i]),
+                                   np.ceil(extent[1, i])).reshape(-1, 1)
+            # Calculate intersection parameters for each vector
+            lparameters = (intersects - self.p[:, i]) / self.v[:, i]
+            # Add integer to parameter and mask outside line
+            global_parameters = np.ma.array(
+                np.ma.array(lparameters + np.arange(self.length)),
+                mask=np.logical_or(lparameters < 0, lparameters > 1),
+            )
+            # Only unmasked values must be in parameters
+            parameters.append(global_parameters.compressed())
+
+        # Add parameters for original points
+        parameters.append(np.arange(self.length + 1))
+
+        return np.sort(np.unique(np.concatenate(parameters)))
+
+    def __getitem__(self, parameters):
+        """ Return points corresponding to parameters. """
+        i = np.uint64(np.where(parameters == self.length,
+                               self.length - 1, parameters))
+        t = np.where(parameters == self.length,
+                     1, np.remainder(parameters, 1)).reshape(-1, 1)
+        return self.p[i] + t * self.v[i]
 
 
 def parameterize_intersects(cellsize, direction, offset):
@@ -162,39 +238,6 @@ def segmentize(linestring):
             segment.AddPoint_2D(x0, y0)
             segment.AddPoint_2D(x1, y1)
             yield segment
-
-
-def get_index():
-    """ Return index from container or open from config location. """
-    key = 'index'
-    if key not in cache:
-        if os.path.exists(config.INDEX_PATH):
-            dataset = ogr.Open(config.INDEX_PATH)
-        else:
-            raise OSError('File not found :{}'.format(config.INDEX_PATH))
-        cache[key] = dataset
-    return cache[key][0]
-
-
-def get_dataset(leaf):
-    """ Return gdal_dataset from cache or file. """
-    leafno = leaf[b'BLADNR']
-    if leafno in cache:
-        return cache[leafno]
-
-    if len(cache) > 10:
-        for key in cache.keys():
-            if SHEET.match(key):
-                del cache[key]  # Maybe unnecessary, see top and lsof.
-
-    # Add to cache and return.
-    unit = SHEET.match(leafno).group('unit')
-    path = os.path.join(config.AHN_PATH, unit, leafno + '.tif')
-    dataset = gdal.Open(path)
-    cache[leafno] = Dataset(data=dataset.ReadAsArray(),
-                            geotransform=dataset.GetGeoTransform())
-    dataset = None
-    return cache[leafno]
 
 
 def get_values(dataset, points):
@@ -262,6 +305,18 @@ def pixelize_range(segment, distance):
     return lines, points, rangevalues
 
 
+def calculate(geometry):
+    """ Return lines, points, values tuple of numpy arrays. """
+    linestring = LineString(geometry.GetPoints())
+    p = linestring.pixelize(size=(0.5, 0.5))
+    linestring[0]
+    linestring[p]
+    # Use linestring to return widened grid of points
+    # Get grid with height values for grid
+    # Determine maxima
+    # Return lines, points, values
+
+
 class AbstractWriter(object):
     """ Base class for common writer methods. """
     def __init__(self, path, **kwargs):
@@ -301,15 +356,6 @@ class AbstractWriter(object):
         for i in range(layer_definition.GetFieldCount()):
             self.layer.CreateField(layer_definition.GetFieldDefn(i))
 
-    def _pixelize(self, segment):
-        """ Pixelize according to mode. """
-        if self.mode == MODE_FIXED:
-            return pixelize(segment)
-        if self.mode == MODE_RANGE:
-            return pixelize_range(segment, self.distance)
-        if self.mode == MODE_CHANGE:
-            raise NotImplementedError
-
 
 class CoordinateWriter(AbstractWriter):
     """ Writes a shapefile with height in z coordinate. """
@@ -317,23 +363,19 @@ class CoordinateWriter(AbstractWriter):
         """
         Return converted geometry.
         """
+
+        lines, points, values = calculate(source_geometry)
         target_geometry = ogr.Geometry(ogr.wkbLineString)
-        for i, segment in enumerate(segmentize(source_geometry)):
-            lines, points, values = self._pixelize(segment)
+        # Add the first point of the first line
+        target_geometry.AddPoint(float(lines[0, 0, 0]),
+                                 float(lines[0, 0, 1]),
+                                 float(values[0]))
 
-            # Add first point of the first line if this is the first segment
-            if i == 0:
-                target_geometry.AddPoint(float(lines[0, 0, 0]),
-                                         float(lines[0, 0, 1]),
-                                         float(values[0]))
+        # Add the rest of the points (x, y) and values (z)
+        for (x, y), z in zip(points, values):
+            target_geometry.AddPoint(float(x), float(y), float(z))
 
-            # Add the rest of the points (x, y) and values (z)
-            for (x, y), z in zip(points, values):
-                target_geometry.AddPoint(float(x), float(y), float(z))
-
-            self.indicator.update()
-
-        # Add the last point of the last line of the last segment
+        # Add the last point of the last line
         target_geometry.AddPoint(float(lines[-1, 1, 0]),
                                  float(lines[-1, 1, 1]),
                                  float(values[-1]))
@@ -411,9 +453,8 @@ class AttributeWriter(AbstractWriter):
         dataset = None
 
 
-def addheight(source_path, target_path, overwrite,
-              layout, mode, distance,
-              elevation_attribute, feature_id_attribute):
+def addheight(source_path, target_path, overwrite, distance, modify,
+              layout, elevation_attribute, feature_id_attribute):
     """
     Take linestrings from source and create target with height added.
 
@@ -425,8 +466,8 @@ def addheight(source_path, target_path, overwrite,
 
     Writer = CoordinateWriter if layout == LAYOUT_POINT else AttributeWriter
     with Writer(target_path,
-                mode=mode,
                 distance=distance,
+                modify=modify,
                 elevation_attribute=elevation_attribute,
                 feature_id_attribute=feature_id_attribute) as writer:
         writer.add(source_path)
