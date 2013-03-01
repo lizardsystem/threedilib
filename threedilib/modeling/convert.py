@@ -116,7 +116,7 @@ class ImageWriter(object):
         l = [0]
         for i in range(len(z) - 1):
             l.append(l[-1] + math.sqrt(
-                (x[i + 1] - x[i])**2 + (y[i + 1] - y[i])**2,
+                (x[i + 1] - x[i]) ** 2 + (y[i + 1] - y[i]) ** 2,
             ))
         # Plot in matplotlib
         label = '\n'.join([': '.join(str(v) for v in item)
