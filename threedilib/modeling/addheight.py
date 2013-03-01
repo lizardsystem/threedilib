@@ -95,7 +95,7 @@ def get_parser():
                         metavar='DISTANCE',
                         type=float,
                         default=10,
-                        help=('Distance (left-to-right) to look '
+                        help=('Distance (half-width) to look '
                               'perpendicular to the segments to '
                               'find the highest points on the '
                               'elevation map. Disabled by default.'))
@@ -201,7 +201,7 @@ def get_values(dataset, points):
 
 
 def pixelize(segment):
-    """ Return lines, values tuple of numpy arrays. """
+    """ Return lines, points, values tuple of numpy arrays. """
     # Get tile and check if it is the only tile
     index = get_index()
     index.SetSpatialFilter(segment.Centroid())
@@ -224,6 +224,34 @@ def pixelize(segment):
     # Get values
     values = get_values(dataset, points)
     return lines, points, values
+
+
+def pixelize_range(segment, distance):
+    """
+    Return lines, points, values tuple of numpy arrays.
+
+    Like pixelize, but searches perpendicular at most distance for a maximum.
+
+    V = original vectors
+    U = unit vectors
+    P = perpendicular unit vectors
+    R = range lines
+    """
+    # Get data
+    lines, points, values = pixelize(segment)
+    # Calculate perpendicular lines
+    V = lines[:, 1] - lines[:, 0]
+    U = V / np.sqrt((V ** 2).sum(1)).reshape(-1, 1)
+    P = U[:, ::-1] * np.array([[1, -1]])
+    rangelines = np.array([points - P * distance,
+                           points + P * distance]).transpose(1, 0, 2)
+    rangevalues = []
+    for rangeline in rangelines:
+        for pseg in segmentize(vector.line2geometry(rangeline)):
+            l, p, v = pixelize(pseg)
+            rangevalues.append(v.max())
+
+    return lines, points, rangevalues
 
 
 class AbstractWriter(object):
@@ -265,6 +293,15 @@ class AbstractWriter(object):
         for i in range(layer_definition.GetFieldCount()):
             self.layer.CreateField(layer_definition.GetFieldDefn(i))
 
+    def _pixelize(self, segment):
+        """ Pixelize according to mode. """
+        if self.mode == MODE_FIXED:
+            return pixelize(segment)
+        if self.mode == MODE_RANGE:
+            return pixelize_range(segment, self.distance)
+        if self.mode == MODE_CHANGE:
+            raise NotImplementedError
+
 
 class CoordinateWriter(AbstractWriter):
     """ Writes a shapefile with height in z coordinate. """
@@ -274,7 +311,7 @@ class CoordinateWriter(AbstractWriter):
         """
         target_geometry = ogr.Geometry(ogr.wkbLineString)
         for i, segment in enumerate(segmentize(source_geometry)):
-            lines, points, values = pixelize(segment)
+            lines, points, values = self._pixelize(segment)
 
             # Add first point of the first line if this is the first segment
             if i == 0:
@@ -325,7 +362,7 @@ class AttributeWriter(AbstractWriter):
         Return generator of (geometry, height) tuples.
         """
         for i, segment in enumerate(segmentize(source_geometry)):
-            lines, points, values = pixelize(segment)
+            lines, points, values = self._pixelize(segment)
             for line, value in zip(lines, values):
                 yield vector.line2geometry(line), str(value)
             self.indicator.update()
@@ -375,7 +412,7 @@ def addheight(source_path, target_path, overwrite,
     Source and target are both shapefiles.
     """
     if os.path.exists(target_path) and not overwrite:
-        print('{} already exists. Use --overwrite.'.format(target_path))
+        print("'{}' already exists. Use --overwrite.".format(target_path))
         return 1
 
     Writer = CoordinateWriter if layout == LAYOUT_POINT else AttributeWriter
