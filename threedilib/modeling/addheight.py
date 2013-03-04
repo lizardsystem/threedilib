@@ -141,19 +141,17 @@ class LineString(object):
         # Setup crucial views
         self.p = self.points[:-1]
         self.q = self.points[1:]
-        self.v = self.q - self.p
+        self.vectors = self.q - self.p
 
-    def __len__(self):
-        return self.v.shape[1]
+    def __getitem__(self, parameters):
+        """ Return points corresponding to parameters. """
+        i = np.uint64(np.where(parameters == self.length,
+                               self.length - 1, parameters))
+        t = np.where(parameters == self.length,
+                     1, np.remainder(parameters, 1)).reshape(-1, 1)
+        return self.p[i] + t * self.vectors[i]
 
-    def project(self, points):
-        """
-        Return array of parameters.
-
-        Find closest projection of each point on the linestring.
-        """
-
-    def pixelize(self, size):
+    def _pixelize_to_parameters(self, size):
         """
         Return array of parameters where pixel boundary intersects self.
         """
@@ -164,7 +162,7 @@ class LineString(object):
             intersects = np.arange(np.ceil(extent[0, i]),
                                    np.ceil(extent[1, i])).reshape(-1, 1)
             # Calculate intersection parameters for each vector
-            lparameters = (intersects - self.p[:, i]) / self.v[:, i]
+            lparameters = (intersects - self.p[:, i]) / self.vectors[:, i]
             # Add integer to parameter and mask outside line
             global_parameters = np.ma.array(
                 np.ma.array(lparameters + np.arange(self.length)),
@@ -177,14 +175,27 @@ class LineString(object):
         parameters.append(np.arange(self.length + 1))
 
         return np.sort(np.unique(np.concatenate(parameters)))
+    
+    def pixelize(self, size):
+        """
+        Return pixelized linestring object.
+        """
+        return self.__class__(self[self._pixelize_to_parameters(size)])
 
-    def __getitem__(self, parameters):
-        """ Return points corresponding to parameters. """
-        i = np.uint64(np.where(parameters == self.length,
-                               self.length - 1, parameters))
-        t = np.where(parameters == self.length,
-                     1, np.remainder(parameters, 1)).reshape(-1, 1)
-        return self.p[i] + t * self.v[i]
+
+    def project(self, points):
+        """
+        Return array of parameters.
+
+        Find closest projection of each point on the linestring.
+        """
+        pass
+
+
+
+        return LineString(self[np.sort(np.unique(np.concatenate(parameters)))])
+
+
 
 
 def parameterize_intersects(cellsize, direction, offset):
@@ -308,9 +319,9 @@ def pixelize_range(segment, distance):
 def calculate(geometry):
     """ Return lines, points, values tuple of numpy arrays. """
     linestring = LineString(geometry.GetPoints())
-    p = linestring.pixelize(size=(0.5, 0.5))
-    linestring[0]
-    linestring[p]
+    pixelized_linestring = linestring.pixelize(size=(5, 5))
+    big = vector.array(pixelized_linestring.vectors, 2, 1)
+    import ipdb; ipdb.set_trace() 
     # Use linestring to return widened grid of points
     # Get grid with height values for grid
     # Determine maxima
