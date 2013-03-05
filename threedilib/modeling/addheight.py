@@ -276,9 +276,9 @@ class BaseWriter(object):
             layer.ResetReading()
         return count
 
-    def _calculate(self, geometry):
+    def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
-        linestring = vector.LineString(geometry.GetPoints())
+        linestring = vector.LineString(wkb_line_string.GetPoints())
         pixels = linestring.pixelize(size=PIXELSIZE)
         carpet_points = get_carpet(
             linestring=pixels,
@@ -323,8 +323,8 @@ class CoordinateWriter(BaseWriter):
         """
         Return converted geometry.
         """
-        result = self._calculate(source_geometry)
-        target_geometry = ogr.Geometry(ogr.wkbLineString)
+        result = self._calculate(wkb_line_string=source_geometry)
+        target_geometry = ogr.Geometry(source_geometry.GetGeometryType())
 
         # Add the first point of the first line
         (x, y), z = result['lines'][0, 0], result['values'][0]
@@ -370,7 +370,7 @@ class AttributeWriter(BaseWriter):
         """
         Return generator of (geometry, height) tuples.
         """
-        result = self._calculate(source_geometry)
+        result = self._calculate(wkb_line_string=source_geometry)
         for line, value in zip(result['lines'], result['values']):
             yield vector.line2geometry(line), str(value)
         self.indicator.update()
