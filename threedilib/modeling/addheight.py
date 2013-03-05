@@ -145,15 +145,15 @@ def get_carpet(magic_line, distance, step=None):
 
 def get_leafnos(carpet):
     """ Return the leafnos for the outermost lines of the carpet. """
-    # Create multilinestring containing outermost lines
-    geometries = map(vector.line2geometry,
-                     carpet.transpose(1, 0, 2)[np.array([0, -1])])
-    multilinestring = ogr.Geometry(ogr.wkbMultiLineString)
+    # Create multipoint containing outermost lines
+    geometries = map(vector.point2geometry,
+                     carpet[:, np.array([0, -1])].reshape(-1, 2))
+    multipoint = ogr.Geometry(ogr.wkbMultiPoint)
     for geometry in geometries:
-        multilinestring.AddGeometry(geometry)
+        multipoint.AddGeometry(geometry)
     # Query the index with it
     index = get_index()
-    index.SetSpatialFilter(multilinestring)
+    index.SetSpatialFilter(multipoint)
     return [feature[b'BLADNR'] for feature in index]
 
 
@@ -279,7 +279,9 @@ class BaseWriter(object):
                     pixel_line = magic_line.pixelize(size=PIXELSIZE)
                     points = get_carpet(magic_line=pixel_line,
                                         distance=self.distance)
-                count += len(get_leafnos(points))
+                    count += len(get_leafnos(points))
+                    if not get_leafnos(points):
+                        import ipdb; ipdb.set_trace() 
             layer.ResetReading()
         return count
 

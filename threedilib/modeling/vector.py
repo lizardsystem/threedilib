@@ -11,6 +11,13 @@ from osgeo import ogr
 import numpy as np
 
 
+def point2geometry(point):
+    """ Return geometry. """
+    geometry = ogr.Geometry(ogr.wkbPoint)
+    geometry.AddPoint_2D(*map(float, point))
+    return geometry
+
+
 def line2geometry(line):
     """ Return geometry. """
     geometry = ogr.Geometry(ogr.wkbLineString)
