@@ -143,22 +143,23 @@ def get_carpet(magic_line, distance, step=None):
     return offsets_2d + magic_line.centers.reshape(-1, 1, 2)
 
 
-def get_leafnos(carpet):
+def get_leafnos(magic_line, distance):
     """ Return the leafnos for the outermost lines of the carpet. """
+    # Convert magic line to carpet to linestring around carpet
+    pixel_line = magic_line.pixelize(size=PIXELSIZE, endsonly=True)
+    carpet_points = get_carpet(magic_line=pixel_line,
+                               distance=distance)
     # Create multipoint containing outermost lines
-    geometries = map(vector.point2geometry,
-                     carpet[:, np.array([0, -1])].reshape(-1, 2))
-    multipoint = ogr.Geometry(ogr.wkbMultiPoint)
-    for geometry in geometries:
-        multipoint.AddGeometry(geometry)
+    line1, line2 = carpet_points[:, np.array([0, -1])].transpose(1, 0, 2)
+    linestring = vector.line2geometry(np.vstack([line1, line2[::-1]]))
     # Query the index with it
     index = get_index()
-    index.SetSpatialFilter(multipoint)
+    index.SetSpatialFilter(linestring)
     return [feature[b'BLADNR'] for feature in index]
 
 
 def paste_values(points, values, leafno):
-    """ TODO: comment """
+    """ Paste values of evelation pixels at points. """
     dataset = get_dataset(leafno)
     xmin, ymin, xmax, ymax = dataset.get_extent()
     cellsize = dataset.get_cellsize()
@@ -261,9 +262,6 @@ class BaseWriter(object):
     def _count(self, dataset):
         """
         Return amount of updates expected for progress indicator.
-
-        TODO: Make an option for pixelize to only pixelize the endlines
-        of each segment, that might make searching the index faster.
         """
         count = 0
         for layer in dataset:
@@ -276,18 +274,17 @@ class BaseWriter(object):
                     wkb_line_strings = [line for line in geometry]
                 for wkb_line_string in wkb_line_strings:
                     magic_line = vector.MagicLine(wkb_line_string.GetPoints())
-                    pixel_line = magic_line.pixelize(size=PIXELSIZE)
-                    points = get_carpet(magic_line=pixel_line,
-                                        distance=self.distance)
-                    count += len(get_leafnos(points))
-                    if not get_leafnos(points):
-                        import ipdb; ipdb.set_trace() 
+                    count += len(get_leafnos(magic_line=magic_line,
+                                             distance=self.distance))
             layer.ResetReading()
         return count
 
     def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
+        # Determine the leafnos
         magic_line = vector.MagicLine(wkb_line_string.GetPoints())
+        leafnos = get_leafnos(magic_line=magic_line, distance=self.distance)
+        # Determine the point and values carpets
         pixel_line = magic_line.pixelize(size=PIXELSIZE)
         carpet_points = get_carpet(
             magic_line=pixel_line,
@@ -298,8 +295,7 @@ class BaseWriter(object):
             np.empty(carpet_points.shape[:2]),
             mask=True,
         )
-        leafnos = get_leafnos(carpet_points)
-
+        # Get the values into the carpet per leafno
         for leafno in leafnos:
             paste_values(carpet_points, carpet_values, leafno)
             self.indicator.update()

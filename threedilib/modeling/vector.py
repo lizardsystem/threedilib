@@ -100,11 +100,24 @@ class MagicLine(object):
 
         return np.sort(np.unique(np.concatenate(parameters)))
 
-    def pixelize(self, size):
+    def pixelize(self, size, endsonly=False):
         """
         Return pixelized MagicLine instance.
         """
-        return self.__class__(self[self._pixelize_to_parameters(size)])
+        all_parameters = self._pixelize_to_parameters(size)
+        if endsonly:
+            index_points = np.equal(all_parameters,
+                                    np.round(all_parameters)).nonzero()[0]
+            index_around_points = np.sort(np.concatenate([
+                index_points,
+                index_points[:-1] + 1,
+                index_points[1:] - 1,
+            ]))
+            parameters = all_parameters[index_around_points]
+        else:
+            parameters = all_parameters
+
+        return self.__class__(self[parameters])
 
     def project(self, points):
         """
