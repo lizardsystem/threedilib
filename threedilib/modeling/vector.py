@@ -77,10 +77,12 @@ class LineString(object):
                 size,
             ).reshape(-1, 1)
             # Calculate intersection parameters for each vector
-            lparameters = (intersects - self.p[:, i]) / self.vectors[:, i]
+            nonzero = self.vectors[:, i].nonzero()
+            lparameters = ((intersects - self.p[nonzero, i]) /
+                           self.vectors[nonzero, i])
             # Add integer to parameter and mask outside line
             global_parameters = np.ma.array(
-                np.ma.array(lparameters + np.arange(self.length)),
+                np.ma.array(lparameters + np.arange(nonzero[0].size)),
                 mask=np.logical_or(lparameters < 0, lparameters > 1),
             )
             # Only unmasked values must be in parameters
