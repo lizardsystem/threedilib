@@ -5,7 +5,7 @@ Changelog of threedilib
 0.7.2 (unreleased)
 ------------------
 
-- Nothing changed yet.
+- Addheight tool now averages and can take maximum value over a crossection.
 
 
 0.7.1 (2013-03-04)
