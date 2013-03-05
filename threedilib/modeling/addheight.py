@@ -124,12 +124,12 @@ def get_dataset(leafno):
     return cache[leafno]
 
 
-def get_carpet(linestring, distance, step=None):
+def get_carpet(magic_line, distance, step=None):
     """
     Return MxNx2 numpy array.
 
-    It contains the midpoints of the linestring, but perpendicularly
-    repeated along the normals to the segments of the linestring, up to
+    It contains the midpoints of the MagicLine, but perpendicularly
+    repeated along the normals to the segments of the MagicLine, up to
     distance, with step.
     """
     if step is None or step == 0:
@@ -138,9 +138,9 @@ def get_carpet(linestring, distance, step=None):
         # Length must be uneven, and no less than 2 * distance / step + 1
         length = 2 * np.round(0.5 + distance / step) + 1
     offsets_1d = np.mgrid[-distance:distance:length * 1j]
-    vectors = vector.normalize(vector.rotate(linestring.vectors, 270))
+    vectors = vector.normalize(vector.rotate(magic_line.vectors, 270))
     offsets_2d = vectors.reshape(-1, 1, 2) * offsets_1d.reshape(1, -1, 1)
-    return offsets_2d + linestring.centers.reshape(-1, 1, 2)
+    return offsets_2d + magic_line.centers.reshape(-1, 1, 2)
 
 
 def get_leafnos(carpet):
@@ -268,20 +268,27 @@ class BaseWriter(object):
         count = 0
         for layer in dataset:
             for feature in layer:
-                linestring = vector.LineString(feature.geometry().GetPoints())
-                pixellines = linestring.pixelize(size=PIXELSIZE)
-                points = get_carpet(linestring=pixellines,
-                                    distance=self.distance)
+                geometry = feature.geometry()
+                geometry_type = geometry.GetGeometryType()
+                if geometry_type == ogr.wkbLineString:
+                    wkb_line_strings = [geometry]
+                elif geometry_type == ogr.wkbMultiLineString:
+                    wkb_line_strings = [line for line in geometry]
+                for wkb_line_string in wkb_line_strings:
+                    magic_line = vector.MagicLine(wkb_line_string.GetPoints())
+                    pixel_line = magic_line.pixelize(size=PIXELSIZE)
+                    points = get_carpet(magic_line=pixel_line,
+                                        distance=self.distance)
                 count += len(get_leafnos(points))
             layer.ResetReading()
         return count
 
     def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
-        linestring = vector.LineString(wkb_line_string.GetPoints())
-        pixels = linestring.pixelize(size=PIXELSIZE)
+        magic_line = vector.MagicLine(wkb_line_string.GetPoints())
+        pixel_line = magic_line.pixelize(size=PIXELSIZE)
         carpet_points = get_carpet(
-            linestring=pixels,
+            magic_line=pixel_line,
             distance=self.distance,
             step=STEPSIZE,
         )
@@ -298,8 +305,8 @@ class BaseWriter(object):
             raise ValueError('Masked values remaining after filling!')
 
         # Return lines, centers, values
-        result = dict(lines=pixels.lines,
-                      centers=pixels.centers,
+        result = dict(lines=pixel_line.lines,
+                      centers=pixel_line.centers,
                       values=carpet_values.data.max(1))
 
         if self.average:
@@ -385,7 +392,7 @@ class AttributeWriter(BaseWriter):
         geometry_type = source_geometry.GetGeometryType()
         if geometry_type == ogr.wkbLineString:
             source_wkb_line_strings = [source_geometry]
-        if geometry_type == ogr.wkbMultiLineString:
+        elif geometry_type == ogr.wkbMultiLineString:
             source_wkb_line_strings = [line for line in source_geometry]
         for source_wkb_line_string in source_wkb_line_strings:
             result = self._calculate(wkb_line_string=source_geometry)

@@ -39,7 +39,7 @@ def rotate(vectors, degrees):
     ]).transpose()
 
 
-class LineString(object):
+class MagicLine(object):
     """
     LineString with handy parameterization and projection properties.
     """
@@ -95,7 +95,7 @@ class LineString(object):
 
     def pixelize(self, size):
         """
-        Return pixelized linestring object.
+        Return pixelized MagicLine instance.
         """
         return self.__class__(self[self._pixelize_to_parameters(size)])
 
@@ -103,6 +103,6 @@ class LineString(object):
         """
         Return array of parameters.
 
-        Find closest projection of each point on the linestring.
+        Find closest projection of each point on the magic line.
         """
         pass
