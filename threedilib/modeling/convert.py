@@ -84,16 +84,26 @@ class InputFileWriter(object):
             self.link_count, self.node_count, self.node_count + 1,
         ))
 
-    def add_feature(self, feature):
-        """ Add feature as nodes and links. """
-        geometry = feature.geometry()
-        nodes = [geometry.GetPoint(i) for i in range(geometry.GetPointCount())]
+    def _add_wkb_line_string(self, wkb_line_string):
+        """ Add linestring as nodes and links. """
+        nodes = [wkb_line_string.GetPoint(i)
+                 for i in range(wkb_line_string.GetPointCount())]
         # Add nodes and links up to the last node
         for i in range(len(nodes) - 1):
             self._write_node(nodes[i])
             self._write_link()
         # Add last node, link already covered.
         self._write_node(nodes[-1])
+
+    def add_feature(self, feature):
+        """ Add feature as nodes and links. """
+        geometry = feature.geometry()
+        geometry_type = geometry.GetGeometryType()
+        if geometry_type == ogr.wkbLineString25D:
+            self._add_wkb_line_string(geometry)
+        elif geometry_type == ogr.wkbMultiLineString25D:
+            for wkb_line_string in geometry:
+                self._add_wkb_line_string(wkb_line_string)
 
 
 class ImageWriter(object):
@@ -106,12 +116,11 @@ class ImageWriter(object):
     def __enter__(self):
         return self
 
-    def add_feature(self, feature):
-        """ Currently saves every feature in a separate image. """
+    def _add_wkb_line_string(self, wkb_line_string, label):
+        """ Plot linestring as separate image. """
         # Get data
-        geometry = feature.geometry()
-        x, y, z = zip(*[geometry.GetPoint(i)
-                        for i in range(geometry.GetPointCount())])
+        x, y, z = zip(*[wkb_line_string.GetPoint(i)
+                        for i in range(wkb_line_string.GetPointCount())])
         # Determine distance along line
         l = [0]
         for i in range(len(z) - 1):
@@ -119,8 +128,6 @@ class ImageWriter(object):
                 (x[i + 1] - x[i]) ** 2 + (y[i + 1] - y[i]) ** 2,
             ))
         # Plot in matplotlib
-        label = '\n'.join([': '.join(str(v) for v in item)
-                           for item in feature.items().items()])
         fig = figure.Figure()
         axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
         axes.plot(l, z, label=label)
@@ -132,6 +139,20 @@ class ImageWriter(object):
         root, ext = os.path.splitext(self.path)
         image.save(root + '{:00.0f}'.format(self.count) + ext)
         self.count += 1
+
+    def add_feature(self, feature):
+        """ Currently saves every feature in a separate image. """
+        # Plotlabel
+        label = '\n'.join([': '.join(str(v) for v in item)
+                           for item in feature.items().items()])
+        # Plot according to geometry type
+        geometry = feature.geometry()
+        geometry_type = geometry.GetGeometryType()
+        if geometry_type == ogr.wkbLineString25D:
+            self._add_wkb_line_string(geometry, label=label)
+        elif geometry_type == ogr.wkbMultiLineString25D:
+            for wkb_line_string in geometry:
+                self._add_wkb_line_string(wkb_line_string, label=label)
 
     def __exit__(self, type, value, traceback):
         pass

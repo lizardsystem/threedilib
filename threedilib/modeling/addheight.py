@@ -341,10 +341,10 @@ class CoordinateWriter(BaseWriter):
         """
         Return converted linestring or multiline.
         """
-        geometry_type = source_geometry.GetGeomeryType()
+        geometry_type = source_geometry.GetGeometryType()
         if geometry_type == ogr.wkbLineString:
             return self._convert_wkb_line_string(source_geometry)
-        if geometry_type == ogr.wkbMultiLine:
+        if geometry_type == ogr.wkbMultiLineString:
             target_geometry = ogr.Geometry(source_geometry.GetGeometryType())
             for source_wkb_line_string in source_geometry:
                 target_geometry.AddGeometry(
@@ -382,10 +382,15 @@ class AttributeWriter(BaseWriter):
         """
         Return generator of (geometry, height) tuples.
         """
-        result = self._calculate(wkb_line_string=source_geometry)
-        for line, value in zip(result['lines'], result['values']):
-            yield vector.line2geometry(line), str(value)
-        self.indicator.update()
+        geometry_type = source_geometry.GetGeometryType()
+        if geometry_type == ogr.wkbLineString:
+            source_wkb_line_strings = [source_geometry]
+        if geometry_type == ogr.wkbMultiLineString:
+            source_wkb_line_strings = [line for line in source_geometry]
+        for source_wkb_line_string in source_wkb_line_strings:
+            result = self._calculate(wkb_line_string=source_geometry)
+            for line, value in zip(result['lines'], result['values']):
+                yield vector.line2geometry(line), str(value)
 
     def _add_fields(self):
         """ Create extra fields. """
