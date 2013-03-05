@@ -319,26 +319,38 @@ class BaseWriter(object):
 
 class CoordinateWriter(BaseWriter):
     """ Writes a shapefile with height in z coordinate. """
-    def _convert(self, source_geometry):
-        """
-        Return converted geometry.
-        """
-        result = self._calculate(wkb_line_string=source_geometry)
-        target_geometry = ogr.Geometry(source_geometry.GetGeometryType())
+    def _convert_wkb_line_string(self, source_wkb_line_string):
+        """ Return a wkb line string. """
+        result = self._calculate(wkb_line_string=source_wkb_line_string)
+        target_wkb_line_string = ogr.Geometry(ogr.wkbLineString)
 
         # Add the first point of the first line
         (x, y), z = result['lines'][0, 0], result['values'][0]
-        target_geometry.AddPoint(float(x), float(y), float(z))
+        target_wkb_line_string.AddPoint(float(x), float(y), float(z))
 
         # Add the centers (x, y) and values (z)
         for (x, y), z in zip(result['centers'], result['values']):
-            target_geometry.AddPoint(float(x), float(y), float(z))
+            target_wkb_line_string.AddPoint(float(x), float(y), float(z))
 
         # Add the last point of the last line
         (x, y), z = result['lines'][-1, 1], result['values'][-1]
-        target_geometry.AddPoint(float(x), float(y), float(z))
+        target_wkb_line_string.AddPoint(float(x), float(y), float(z))
+        return target_wkb_line_string
 
-        return target_geometry
+    def _convert(self, source_geometry):
+        """
+        Return converted linestring or multiline.
+        """
+        geometry_type = source_geometry.GetGeomeryType()
+        if geometry_type == ogr.wkbLineString:
+            return self._convert_wkb_line_string(source_geometry)
+        if geometry_type == ogr.wkbMultiLine:
+            target_geometry = ogr.Geometry(source_geometry.GetGeometryType())
+            for source_wkb_line_string in source_geometry:
+                target_geometry.AddGeometry(
+                    self._convert_wkb_line_string(source_wkb_line_string),
+                )
+            return target_geometry
 
     def _add_feature(self, feature):
         """ Add converted feature. """
