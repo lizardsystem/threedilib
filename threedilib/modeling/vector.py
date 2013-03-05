@@ -39,10 +39,68 @@ def rotate(vectors, degrees):
     ]).transpose()
 
 
-def array(vectors, distance, step):
-    """ Return MxNx2x2 vector array. """
-    positions = np.mgrid[-distance:distance:(1 + 2 * distance / step) * 1j]
-    import ipdb; ipdb.set_trace() 
-    result = positions.reshape(1, -1) * normalize(rotate(vectors, 90))
-    import ipdb; ipdb.set_trace()
-    return result
+class LineString(object):
+    """
+    LineString with handy parameterization and projection properties.
+    """
+    def __init__(self, points):
+        # Data
+        self.points = np.array(points)
+        # Views
+        self.p = self.points[:-1]
+        self.q = self.points[1:]
+        self.lines = np.hstack([self.p, self.q]).reshape(-1, 2, 2)
+        # Derivatives
+        self.length = len(points) - 1
+        self.vectors = self.q - self.p
+        self.centers = (self.p + self.q) / 2
+
+    def __getitem__(self, parameters):
+        """ Return points corresponding to parameters. """
+        i = np.uint64(np.where(parameters == self.length,
+                               self.length - 1, parameters))
+        t = np.where(parameters == self.length,
+                     1, np.remainder(parameters, 1)).reshape(-1, 1)
+        return self.p[i] + t * self.vectors[i]
+
+    def _pixelize_to_parameters(self, size):
+        """
+        Return array of parameters where pixel boundary intersects self.
+        """
+        extent = np.array([self.points.min(0), self.points.max(0)])
+        parameters = []
+        # Loop dimensions for intersection parameters
+        for i in range(extent.shape[-1]):
+            intersects = np.arange(
+                size * np.ceil(extent[0, i] / size),
+                size * np.ceil(extent[1, i] / size),
+                size,
+            ).reshape(-1, 1)
+            # Calculate intersection parameters for each vector
+            lparameters = (intersects - self.p[:, i]) / self.vectors[:, i]
+            # Add integer to parameter and mask outside line
+            global_parameters = np.ma.array(
+                np.ma.array(lparameters + np.arange(self.length)),
+                mask=np.logical_or(lparameters < 0, lparameters > 1),
+            )
+            # Only unmasked values must be in parameters
+            parameters.append(global_parameters.compressed())
+
+        # Add parameters for original points
+        parameters.append(np.arange(self.length + 1))
+
+        return np.sort(np.unique(np.concatenate(parameters)))
+
+    def pixelize(self, size):
+        """
+        Return pixelized linestring object.
+        """
+        return self.__class__(self[self._pixelize_to_parameters(size)])
+
+    def project(self, points):
+        """
+        Return array of parameters.
+
+        Find closest projection of each point on the linestring.
+        """
+        pass

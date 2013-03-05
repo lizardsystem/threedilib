@@ -21,7 +21,7 @@ from threedilib import config
 
 DESCRIPTION = """
     Convert a shapefile containing 2D linestrings to a shapefile with
-    embedded elevation from an elevation map
+    embedded elevation from an elevation map.
 
     Target shapefile can have two layouts: A 'point' layout where the
     elevation is stored in the third coordinate of a 3D linstring, and
@@ -40,10 +40,10 @@ DESCRIPTION = """
 LAYOUT_POINT = 'point'
 LAYOUT_LINE = 'line'
 
-SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
+PIXELSIZE = 0.5  # AHN2
+STEPSIZE = 0.5  # For looking perpendicular to line.
 
-import collections
-Dataset = collections.namedtuple('Dataset', ['geotransform', 'data'])
+SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
 
 
 def get_parser():
@@ -72,6 +72,11 @@ def get_parser():
     parser.add_argument('-m', '--modify',
                         action='store_true',
                         help='Change horizontal geometry.')
+    parser.add_argument('-a', '--average',
+                        metavar='AMOUNT',
+                        type=int,
+                        default=0,
+                        help='Average points and values.')
     parser.add_argument('-l', '--layout',
                         metavar='LAYOUT',
                         choices=[LAYOUT_POINT, LAYOUT_LINE],
@@ -100,9 +105,8 @@ def get_index():
     return cache[key][0]
 
 
-def get_dataset(leaf):
+def get_dataset(leafno):
     """ Return gdal_dataset from cache or file. """
-    leafno = leaf[b'BLADNR']
     if leafno in cache:
         return cache[leafno]
 
@@ -115,220 +119,126 @@ def get_dataset(leaf):
     unit = SHEET.match(leafno).group('unit')
     path = os.path.join(config.AHN_PATH, unit, leafno + '.tif')
     dataset = gdal.Open(path)
-    cache[leafno] = Dataset(data=dataset.ReadAsArray(),
-                            geotransform=dataset.GetGeoTransform())
+    cache[leafno] = Dataset(dataset)
     dataset = None
     return cache[leafno]
 
 
-def get_direction_and_offset(line):
-    """ Return direction, offset tuple. """
-    x0, x1 = np.array(line)
-    return x1 - x0, x0
-
-
-class LineString(object):
+def get_carpet(linestring, distance, step=None):
     """
-    LineString with handy parameterization and projection properties.
+    Return MxNx2 numpy array.
+
+    It contains the midpoints of the linestring, but perpendicularly
+    repeated along the normals to the segments of the linestring, up to
+    distance, with step.
     """
-    def __init__(self, points):
-        self.points = np.array(points)
-        self.length = len(points) - 1
-        #self.extent = (points[:, 0].min(),
-                       #points[:, 1].min(),
-                       #points[:, 1].max(),
-                       #points[:, 1].max())
-        # Setup crucial views
-        self.p = self.points[:-1]
-        self.q = self.points[1:]
-        self.vectors = self.q - self.p
-
-    def __getitem__(self, parameters):
-        """ Return points corresponding to parameters. """
-        i = np.uint64(np.where(parameters == self.length,
-                               self.length - 1, parameters))
-        t = np.where(parameters == self.length,
-                     1, np.remainder(parameters, 1)).reshape(-1, 1)
-        return self.p[i] + t * self.vectors[i]
-
-    def _pixelize_to_parameters(self, size):
-        """
-        Return array of parameters where pixel boundary intersects self.
-        """
-        extent = np.array([self.points.min(0), self.points.max(0)])
-        parameters = []
-        # Loop dimensions for intersection parameters
-        for i in range(extent.shape[-1]):
-            intersects = np.arange(np.ceil(extent[0, i]),
-                                   np.ceil(extent[1, i])).reshape(-1, 1)
-            # Calculate intersection parameters for each vector
-            lparameters = (intersects - self.p[:, i]) / self.vectors[:, i]
-            # Add integer to parameter and mask outside line
-            global_parameters = np.ma.array(
-                np.ma.array(lparameters + np.arange(self.length)),
-                mask=np.logical_or(lparameters < 0, lparameters > 1),
-            )
-            # Only unmasked values must be in parameters
-            parameters.append(global_parameters.compressed())
-
-        # Add parameters for original points
-        parameters.append(np.arange(self.length + 1))
-
-        return np.sort(np.unique(np.concatenate(parameters)))
-    
-    def pixelize(self, size):
-        """
-        Return pixelized linestring object.
-        """
-        return self.__class__(self[self._pixelize_to_parameters(size)])
+    if step is None or step == 0:
+        length = 2
+    else:
+        # Length must be uneven, and no less than 2 * distance / step + 1
+        length = 2 * np.round(0.5 + distance / step) + 1
+    offsets_1d = np.mgrid[-distance:distance:length * 1j]
+    vectors = vector.normalize(vector.rotate(linestring.vectors, 270))
+    offsets_2d = vectors.reshape(-1, 1, 2) * offsets_1d.reshape(1, -1, 1)
+    return offsets_2d + linestring.centers.reshape(-1, 1, 2)
 
 
-    def project(self, points):
-        """
-        Return array of parameters.
-
-        Find closest projection of each point on the linestring.
-        """
-        pass
-
-
-
-        return LineString(self[np.sort(np.unique(np.concatenate(parameters)))])
-
-
-
-
-def parameterize_intersects(cellsize, direction, offset):
-    """
-    Return numpy array of parameters.
-
-    Parameters represent start, optional intersections, and end.
-    Each parameter can be converted to a point via
-    (parameter * direction + offset)
-    """
-    # Determine extents (two times ceil, because of how np.arange works)
-    points = np.array([offset, offset + direction])
-    left, bottom = np.ceil(np.min(points, axis=0) / cellsize) * cellsize
-    right, top = np.ceil(np.max(points, axis=0) / cellsize) * cellsize
-    # Determine intersections with gridlines
-    width, height = cellsize
-    x_intersects = np.arange(left, right, width)
-    y_intersects = np.arange(bottom, top, height)
-    # Determine parameters corresponding to intersections
-    x_parameters = (x_intersects - offset[0]) / direction[0]
-    y_parameters = (y_intersects - offset[1]) / direction[1]
-    # Return sorted, distinct parameters, including start and and.
-    return tuple(np.sort(np.unique(np.concatenate([(0, 1),
-                                                   x_parameters,
-                                                   y_parameters]))))
-
-
-def segmentize_by_tiles(line):
-    """ Return generator of line tuples. """
-    direction, offset = get_direction_and_offset(line)
-    parameters = parameterize_intersects(direction=direction,
-                                         offset=offset,
-                                         cellsize=(1000, 1250))
-    for i in range(len(parameters) - 1):
-        result = (tuple(offset + direction * parameters[i]),
-                  tuple(offset + direction * parameters[i + 1]))
-        yield result
-
-
-def segmentize_by_points(linestring):
-    """ Return generator of line tuples. """
-    for i in range(linestring.GetPointCount() - 1):
-        yield linestring.GetPoint_2D(i), linestring.GetPoint_2D(i + 1)
-
-
-def segmentize(linestring):
-    """ Return generator of linestring geometries. """
-    for line in segmentize_by_points(linestring):
-        for (x0, y0), (x1, y1) in segmentize_by_tiles(line):
-            segment = ogr.Geometry(ogr.wkbLineString)
-            segment.AddPoint_2D(x0, y0)
-            segment.AddPoint_2D(x1, y1)
-            yield segment
-
-
-def get_values(dataset, points):
-    """ Return the height from dataset. """
-    geotransform = np.array(dataset.geotransform)
-    cellsize = geotransform[np.array([[1, 5]])]  # Note no abs() now!
-    origin = geotransform[np.array([[0, 3]])]
-    # Make indices
-    indices = tuple(np.int64((points - origin) / cellsize).T)[::-1]
-    # Use indices to query the data
-    return dataset.data[indices]
-
-
-def pixelize(segment):
-    """ Return lines, points, values tuple of numpy arrays. """
-    # Get tile and check if it is the only tile
+def get_leafnos(carpet):
+    """ Return the leafnos for the outermost lines of the carpet. """
+    # Create multilinestring containing outermost lines
+    geometries = map(vector.line2geometry,
+                     carpet.transpose(1, 0, 2)[np.array([0, -1])])
+    multilinestring = ogr.Geometry(ogr.wkbMultiLineString)
+    for geometry in geometries:
+        multilinestring.AddGeometry(geometry)
+    # Query the index with it
     index = get_index()
-    index.SetSpatialFilter(segment.Centroid())
-    if index.GetFeatureCount() > 1:
-        raise ValueError('There should be only one tile per segment!')
-    leaf = index.GetNextFeature()
-    dataset = get_dataset(leaf)
+    index.SetSpatialFilter(multilinestring)
+    return [feature[b'BLADNR'] for feature in index]
+
+
+def paste_values(points, values, leafno):
+    """ TODO: comment """
+    dataset = get_dataset(leafno)
+    xmin, ymin, xmax, ymax = dataset.get_extent()
+    cellsize = dataset.get_cellsize()
+    origin = dataset.get_origin()
+
+    # Determine which points are outside leaf's extent.
+    # '=' added for the corner where the index origin is.
+    index = np.logical_and(np.logical_and(points[..., 0] >= xmin,
+                                          points[..., 0] < xmax),
+                           np.logical_and(points[..., 1] > ymin,
+                                          points[..., 1] <= ymax))
+    # Determine indices for these points
+    indices = tuple(np.uint64(
+        (points[index] - origin) / cellsize,
+    ).transpose())[::-1]
+
+    # Assign data for these points to corresponding values.
+    values[index] = dataset.data[indices]
+
+
+def average_result(amount, lines, centers, values):
+    """
+    Return dictionary of numpy arrays.
+
+    Points and values are averaged in groups of amount, but lines are
+    converted per group to a line from the start point of the first line
+    in the group to the end point of the last line in the group.
+    """
+    # Determine the size needed to fit an integer multiple of amount
+    oldsize = values.size
+    newsize = int(np.ceil(values.size / amount) * amount)
     # Determine lines
-    geotransform = dataset.geotransform
-    cellsize = abs(geotransform[1]), abs(geotransform[5])
-    direction, offset = get_direction_and_offset(segment.GetPoints())
-    parameters = parameterize_intersects(direction=direction,
-                                         offset=offset,
-                                         cellsize=cellsize)
-    offset_array, direction_array = map(np.array, (offset, direction))
-    ends = offset_array + direction_array * np.array([parameters]).T
-    lines = np.array([ends[:-1].T, ends[1:].T]).transpose(2, 0, 1)
-    points = lines.mean(1)
-
-    # Get values
-    values = get_values(dataset, points)
-    return lines, points, values
-
-
-def pixelize_range(segment, distance):
-    """
-    Return lines, points, values tuple of numpy arrays.
-
-    Like pixelize, but searches perpendicular at most distance for a maximum.
-
-    V = original vectors
-    U = unit vectors
-    P = perpendicular unit vectors
-    R = range lines
-    """
-    # Get data
-    lines, points, values = pixelize(segment)
-    # Calculate perpendicular lines
-    V = lines[:, 1] - lines[:, 0]
-    U = V / np.sqrt((V ** 2).sum(1)).reshape(-1, 1)
-    P = U[:, ::-1] * np.array([[1, -1]])
-    rangelines = np.array([points - P * distance,
-                           points + P * distance]).transpose(1, 0, 2)
-    rangevalues = []
-    for rangeline in rangelines:
-        for pseg in segmentize(vector.line2geometry(rangeline)):
-            l, p, v = pixelize(pseg)
-            rangevalues.append(v.max())
-
-    return lines, points, rangevalues
+    ma_lines = np.ma.array(np.empty((newsize, 2, 2)), mask=True)
+    ma_lines[:oldsize] = lines
+    ma_lines[oldsize:] = lines[-1]  # Repeat last line
+    result_lines = np.array([
+        ma_lines.reshape(-1, amount, 2, 2)[:, 0, 0],
+        ma_lines.reshape(-1, amount, 2, 2)[:, -1, 1],
+    ]).transpose(1, 0, 2)
+    # Calculate points and values by averaging
+    ma_centers = np.ma.array(np.empty((newsize, 2)), mask=True)
+    ma_centers[:oldsize] = centers
+    ma_values = np.ma.array(np.empty(newsize), mask=True)
+    ma_values[:oldsize] = values
+    return dict(lines=result_lines,
+                values=ma_values.reshape(-1, amount).mean(1),
+                centers=ma_centers.reshape(-1, amount, 2).mean(1))
 
 
-def calculate(geometry):
-    """ Return lines, points, values tuple of numpy arrays. """
-    linestring = LineString(geometry.GetPoints())
-    pixelized_linestring = linestring.pixelize(size=(5, 5))
-    big = vector.array(pixelized_linestring.vectors, 2, 1)
-    import ipdb; ipdb.set_trace() 
-    # Use linestring to return widened grid of points
-    # Get grid with height values for grid
-    # Determine maxima
-    # Return lines, points, values
+class Dataset(object):
+    def __init__(self, dataset):
+        """ Initialize from gdal dataset. """
+        self.geotransform = dataset.GetGeoTransform()
+        self.size = dataset.RasterXSize, dataset.RasterYSize
+        self.data = dataset.ReadAsArray()
+
+        # Check for holes in the data
+        nodatavalue = dataset.GetRasterBand(1).GetNoDataValue()
+        if nodatavalue in self.data:
+            raise ValueError('Dataset {} contains nodatavalues!'.format(
+                dataset.GetFileList()[0]
+            ))
+
+    def get_extent(self):
+        """ Return tuple of xmin, ymin, xmax, ymax. """
+        return (self.geotransform[0],
+                self.geotransform[3] + self.size[1] * self.geotransform[5],
+                self.geotransform[0] + self.size[0] * self.geotransform[1],
+                self.geotransform[3])
+
+    def get_cellsize(self):
+        """ Return numpy array. """
+        return np.array([[self.geotransform[1], self.geotransform[5]]])
+
+    def get_origin(self):
+        """ Return numpy array. """
+        return np.array([[self.geotransform[0], self.geotransform[3]]])
 
 
-class AbstractWriter(object):
+class BaseWriter(object):
     """ Base class for common writer methods. """
     def __init__(self, path, **kwargs):
         self.path = path
@@ -349,14 +259,53 @@ class AbstractWriter(object):
         self.dataset = None
 
     def _count(self, dataset):
-        """ Return amount of updates expected for progress indicator. """
+        """
+        Return amount of updates expected for progress indicator.
+
+        TODO: Make an option for pixelize to only pixelize the endlines
+        of each segment, that might make searching the index faster.
+        """
         count = 0
         for layer in dataset:
             for feature in layer:
-                for segment in segmentize(feature.geometry()):
-                    count += 1
+                linestring = vector.LineString(feature.geometry().GetPoints())
+                pixellines = linestring.pixelize(size=PIXELSIZE)
+                points = get_carpet(linestring=pixellines,
+                                    distance=self.distance)
+                count += len(get_leafnos(points))
             layer.ResetReading()
         return count
+
+    def _calculate(self, geometry):
+        """ Return lines, points, values tuple of numpy arrays. """
+        linestring = vector.LineString(geometry.GetPoints())
+        pixels = linestring.pixelize(size=PIXELSIZE)
+        carpet_points = get_carpet(
+            linestring=pixels,
+            distance=self.distance,
+            step=STEPSIZE,
+        )
+        carpet_values = np.ma.array(
+            np.empty(carpet_points.shape[:2]),
+            mask=True,
+        )
+        leafnos = get_leafnos(carpet_points)
+
+        for leafno in leafnos:
+            paste_values(carpet_points, carpet_values, leafno)
+            self.indicator.update()
+        if carpet_values.mask.any():
+            raise ValueError('Masked values remaining after filling!')
+
+        # Return lines, centers, values
+        result = dict(lines=pixels.lines,
+                      centers=pixels.centers,
+                      values=carpet_values.data.max(1))
+
+        if self.average:
+            return average_result(amount=self.average, **result)
+        else:
+            return result
 
     def _add_layer(self, layer):
         """ Add empty copy of layer. """
@@ -368,28 +317,27 @@ class AbstractWriter(object):
             self.layer.CreateField(layer_definition.GetFieldDefn(i))
 
 
-class CoordinateWriter(AbstractWriter):
+class CoordinateWriter(BaseWriter):
     """ Writes a shapefile with height in z coordinate. """
     def _convert(self, source_geometry):
         """
         Return converted geometry.
         """
-
-        lines, points, values = calculate(source_geometry)
+        result = self._calculate(source_geometry)
         target_geometry = ogr.Geometry(ogr.wkbLineString)
-        # Add the first point of the first line
-        target_geometry.AddPoint(float(lines[0, 0, 0]),
-                                 float(lines[0, 0, 1]),
-                                 float(values[0]))
 
-        # Add the rest of the points (x, y) and values (z)
-        for (x, y), z in zip(points, values):
+        # Add the first point of the first line
+        (x, y), z = result['lines'][0, 0], result['values'][0]
+        target_geometry.AddPoint(float(x), float(y), float(z))
+
+        # Add the centers (x, y) and values (z)
+        for (x, y), z in zip(result['centers'], result['values']):
             target_geometry.AddPoint(float(x), float(y), float(z))
 
         # Add the last point of the last line
-        target_geometry.AddPoint(float(lines[-1, 1, 0]),
-                                 float(lines[-1, 1, 1]),
-                                 float(values[-1]))
+        (x, y), z = result['lines'][-1, 1], result['values'][-1]
+        target_geometry.AddPoint(float(x), float(y), float(z))
+
         return target_geometry
 
     def _add_feature(self, feature):
@@ -416,17 +364,16 @@ class CoordinateWriter(AbstractWriter):
         dataset = None
 
 
-class AttributeWriter(AbstractWriter):
+class AttributeWriter(BaseWriter):
     """ Writes a shapefile with height in z attribute. """
     def _convert(self, source_geometry):
         """
         Return generator of (geometry, height) tuples.
         """
-        for i, segment in enumerate(segmentize(source_geometry)):
-            lines, points, values = self._pixelize(segment)
-            for line, value in zip(lines, values):
-                yield vector.line2geometry(line), str(value)
-            self.indicator.update()
+        result = self._calculate(source_geometry)
+        for line, value in zip(result['lines'], result['values']):
+            yield vector.line2geometry(line), str(value)
+        self.indicator.update()
 
     def _add_fields(self):
         """ Create extra fields. """
@@ -464,7 +411,7 @@ class AttributeWriter(AbstractWriter):
         dataset = None
 
 
-def addheight(source_path, target_path, overwrite, distance, modify,
+def addheight(source_path, target_path, overwrite, distance, modify, average,
               layout, elevation_attribute, feature_id_attribute):
     """
     Take linestrings from source and create target with height added.
@@ -479,6 +426,7 @@ def addheight(source_path, target_path, overwrite, distance, modify,
     with Writer(target_path,
                 distance=distance,
                 modify=modify,
+                average=average,
                 elevation_attribute=elevation_attribute,
                 feature_id_attribute=feature_id_attribute) as writer:
         writer.add(source_path)
