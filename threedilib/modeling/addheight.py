@@ -265,6 +265,7 @@ class BaseWriter(object):
         """
         count = 0
         for layer in dataset:
+            indicator = progress.Indicator(layer.GetFeatureCount())
             for feature in layer:
                 geometry = feature.geometry()
                 geometry_type = geometry.GetGeometryType()
@@ -276,6 +277,7 @@ class BaseWriter(object):
                     magic_line = vector.MagicLine(wkb_line_string.GetPoints())
                     count += len(get_leafnos(magic_line=magic_line,
                                              distance=self.distance))
+                indicator.update()
             layer.ResetReading()
         return count
 
@@ -373,7 +375,10 @@ class CoordinateWriter(BaseWriter):
     def add(self, path, **kwargs):
         """ Convert dataset at path. """
         dataset = ogr.Open(path)
-        self.indicator = progress.Indicator(self._count(dataset))
+        print('Estimating work...')
+        count = self._count(dataset)
+        print('Converting:...')
+        self.indicator = progress.Indicator(count)
         for layer in dataset:
             self._add_layer(layer)
             for feature in layer:

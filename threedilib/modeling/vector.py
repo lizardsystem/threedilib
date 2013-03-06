@@ -108,11 +108,11 @@ class MagicLine(object):
         if endsonly:
             index_points = np.equal(all_parameters,
                                     np.round(all_parameters)).nonzero()[0]
-            index_around_points = np.sort(np.concatenate([
+            index_around_points = np.sort(np.unique(np.concatenate([
                 index_points,
                 index_points[:-1] + 1,
                 index_points[1:] - 1,
-            ]))
+            ])))
             parameters = all_parameters[index_around_points]
         else:
             parameters = all_parameters
