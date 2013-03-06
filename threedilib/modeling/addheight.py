@@ -429,7 +429,10 @@ class AttributeWriter(BaseWriter):
     def add(self, path):
         """ Convert dataset at path. """
         dataset = ogr.Open(path)
-        self.indicator = progress.Indicator(self._count(dataset))
+        print('Estimating work...')
+        count = self._count(dataset)
+        print('Converting:...')
+        self.indicator = progress.Indicator(count)
         for layer in dataset:
             self._add_layer(layer)
             self._add_fields()
