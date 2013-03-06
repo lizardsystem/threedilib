@@ -259,28 +259,6 @@ class BaseWriter(object):
         self.layer = None
         self.dataset = None
 
-    def _count(self, dataset):
-        """
-        Return amount of updates expected for progress indicator.
-        """
-        count = 0
-        for layer in dataset:
-            indicator = progress.Indicator(layer.GetFeatureCount())
-            for feature in layer:
-                geometry = feature.geometry()
-                geometry_type = geometry.GetGeometryType()
-                if geometry_type == ogr.wkbLineString:
-                    wkb_line_strings = [geometry]
-                elif geometry_type == ogr.wkbMultiLineString:
-                    wkb_line_strings = [line for line in geometry]
-                for wkb_line_string in wkb_line_strings:
-                    magic_line = vector.MagicLine(wkb_line_string.GetPoints())
-                    count += len(get_leafnos(magic_line=magic_line,
-                                             distance=self.distance))
-                indicator.update()
-            layer.ResetReading()
-        return count
-
     def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
         # Determine the leafnos
@@ -375,9 +353,7 @@ class CoordinateWriter(BaseWriter):
     def add(self, path, **kwargs):
         """ Convert dataset at path. """
         dataset = ogr.Open(path)
-        print('Estimating work...')
-        count = self._count(dataset)
-        print('Converting:...')
+        count = sum(layer.GetFeatureCount() for layer in dataset)
         self.indicator = progress.Indicator(count)
         for layer in dataset:
             self._add_layer(layer)
@@ -429,9 +405,7 @@ class AttributeWriter(BaseWriter):
     def add(self, path):
         """ Convert dataset at path. """
         dataset = ogr.Open(path)
-        print('Estimating work...')
-        count = self._count(dataset)
-        print('Converting:...')
+        count = sum(layer.GetFeatureCount() for layer in dataset)
         self.indicator = progress.Indicator(count)
         for layer in dataset:
             self._add_layer(layer)
