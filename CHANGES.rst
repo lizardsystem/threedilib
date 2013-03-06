@@ -5,7 +5,7 @@ Changelog of threedilib
 0.7.3 (unreleased)
 ------------------
 
-- Nothing changed yet.
+- Bugfixes and add support for multilinestring.
 
 
 0.7.2 (2013-03-05)
