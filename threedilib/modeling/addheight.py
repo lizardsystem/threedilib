@@ -278,7 +278,6 @@ class BaseWriter(object):
         # Get the values into the carpet per leafno
         for leafno in leafnos:
             paste_values(carpet_points, carpet_values, leafno)
-            self.indicator.update()
         if carpet_values.mask.any():
             raise ValueError('Masked values remaining after filling!')
 
@@ -349,6 +348,7 @@ class CoordinateWriter(BaseWriter):
         geometry = self._convert(source_geometry=feature.geometry())
         new_feature.SetGeometry(geometry)
         self.layer.CreateFeature(new_feature)
+        self.indicator.update()
 
     def add(self, path, **kwargs):
         """ Convert dataset at path. """
@@ -401,6 +401,7 @@ class AttributeWriter(BaseWriter):
             # Set geometry and add to layer
             new_feature.SetGeometry(geometry)
             self.layer.CreateFeature(new_feature)
+        self.indicator.update()
 
     def add(self, path):
         """ Convert dataset at path. """
