@@ -393,7 +393,7 @@ class AttributeWriter(BaseWriter):
         elif geometry_type == ogr.wkbMultiLineString:
             source_wkb_line_strings = [line for line in source_geometry]
         for source_wkb_line_string in source_wkb_line_strings:
-            result = self._calculate(wkb_line_string=source_geometry)
+            result = self._calculate(wkb_line_string=source_wkb_line_string)
             for line, value in zip(result['lines'], result['values']):
                 yield vector.line2geometry(line), str(value)
 
