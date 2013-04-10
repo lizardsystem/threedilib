@@ -259,6 +259,24 @@ class BaseWriter(object):
         self.layer = None
         self.dataset = None
 
+    def _modify(self, points, values):
+        """ Return a dictionary of lines, centers and values. """
+        # Find indices of hightes points
+        index = (np.arange(values.shape[0]), values.argmax(1))
+
+        # Proof of concept
+        mpoints = points[index]
+        mvalues = values[index]
+
+        # Quick 'n dirty way of getting to result dict
+        rlines = np.array([mpoints[1:], mpoints[:-1]]).transpose(1, 0, 2)
+        rcenters = mpoints[1:]
+        rvalues = mvalues[1:]
+
+        return dict(lines=rlines,
+                    centers=rcenters,
+                    values=rvalues)
+
     def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
         # Determine the leafnos
@@ -282,9 +300,16 @@ class BaseWriter(object):
             raise ValueError('Masked values remaining after filling!')
 
         # Return lines, centers, values
-        result = dict(lines=pixel_line.lines,
-                      centers=pixel_line.centers,
-                      values=carpet_values.data.max(1))
+        if self.modify:
+            # Note the original lines are discared.
+            # The resulting lines are slightly shorter
+            # because of how the carpet works.
+            result = self._modify(points=carpet_points,
+                                  values=carpet_values)
+        else:
+            result = dict(lines=pixel_line.lines,
+                          centers=pixel_line.centers,
+                          values=carpet_values.data.max(1))
 
         if self.average:
             return average_result(amount=self.average, **result)
