@@ -82,7 +82,7 @@ def get_parser():
                         metavar='AMOUNT',
                         type=int,
                         default=0,
-                        help='Average points and values.')
+                        help='Average of points and minimum of values.')
     parser.add_argument('-l', '--layout',
                         metavar='LAYOUT',
                         choices=[LAYOUT_POINT, LAYOUT_LINE],
@@ -224,7 +224,7 @@ def average_result(amount, lines, centers, values):
     ma_values = np.ma.array(np.empty(newsize), mask=True)
     ma_values[:oldsize] = values
     return dict(lines=result_lines,
-                values=ma_values.reshape(-1, amount).mean(1),
+                values=ma_values.reshape(-1, amount).min(1),
                 centers=ma_centers.reshape(-1, amount, 2).mean(1))
 
 
@@ -282,32 +282,38 @@ class BaseWriter(object):
         """ Return dictionary of numpy arrays. """
         # First a minimum filter with requested width
         filtersize = np.round(self.width / step)
-        minimum = values.min()
-        fpoints = ndimage.median_filter(
-            points, size=(1, filtersize, 1),
-        )
-        fvalues = ndimage.minimum_filter(
-            values, size=(1, filtersize), mode='constant', cval=minimum,
-        )
-        # Then find the maximum of this filter
+        if filtersize > 0:
+            minimum = values.min()
+            fpoints = ndimage.convolve(
+                points, np.ones((1, filtersize, 1)) / filtersize,
+            )  # Moving average for the points
+            fvalues = ndimage.minimum_filter(
+                values, size=(1, filtersize), mode='constant', cval=minimum,
+            )  # Moving minimum for the values
+        else:
+            fpoints = points
+            fvalues = values
+
+        # Find the maximum per filtered line
         index = (np.arange(len(fvalues)), fvalues.argmax(axis=1))
         mpoints = fpoints[index]
         mvalues = fvalues[index]
+
+        # Sorting points and values according to projection on mline
+        parameters = mline.project(mpoints)
+        ordering = parameters.argsort()
+        spoints = mpoints[ordering]
+        svalues = mvalues[ordering]
         
         # Quick 'n dirty way of getting to result dict
-        rlines = np.array([mpoints[:-1], mpoints[1:]]).transpose(1, 0, 2)
-        rcenters = mpoints[1:]
-        rvalues = mvalues[1:]
+        rlines = np.array([spoints[:-1], spoints[1:]]).transpose(1, 0, 2)
+        rcenters = spoints[1:]
+        rvalues = svalues[1:]
 
         return dict(lines=rlines,
                     centers=rcenters,
                     values=rvalues)
 
-        # Sorting points and values according to projection on mline
-        pars = mline.project(cpoints)
-        ordering = pars.argsort()
-        mpoints = cpoints[ordering]
-        mvalues = cvalues[ordering]
 
         #from matplotlib.backends import backend_agg
         #from matplotlib import figure
@@ -396,6 +402,7 @@ class CoordinateWriter(BaseWriter):
         # Add the last point of the last line
         (x, y), z = result['lines'][-1, 1], result['values'][-1]
         target_wkb_line_string.AddPoint(float(x), float(y), float(z))
+
         return target_wkb_line_string
 
     def _convert(self, source_geometry):
@@ -504,6 +511,9 @@ def addheight(source_path, target_path, overwrite,
     if os.path.exists(target_path) and not overwrite:
         print("'{}' already exists. Use --overwrite.".format(target_path))
         return 1
+
+    if modify and not distance:
+        print('Warning: --modify used with zero distance.')
 
     Writer = CoordinateWriter if layout == LAYOUT_POINT else AttributeWriter
     with Writer(target_path,

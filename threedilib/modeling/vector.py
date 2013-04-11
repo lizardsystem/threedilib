@@ -147,7 +147,7 @@ class MagicLine(object):
         
         # Add integer to parameter and mask outside line
         gparameters = np.ma.array(
-            np.ma.array(lparameters + np.arange(len(self.vectors)).reshape(1, -1)),
+            np.array(lparameters + np.arange(len(self.vectors)).reshape(1, -1)),
             mask=np.logical_or(lparameters < 0, lparameters > 1),
         )
 
