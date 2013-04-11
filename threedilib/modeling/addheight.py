@@ -12,7 +12,7 @@ import re
 
 from osgeo import gdal
 from osgeo import ogr
-
+from scipy import ndimage
 import numpy as np
 
 from threedilib.modeling import progress
@@ -69,6 +69,12 @@ def get_parser():
                               'perpendicular to the segments to '
                               'find the highest points on the '
                               'elevation map. Defaults to 0.0.'))
+    parser.add_argument('-w', '--width',
+                        metavar='WIDTH',
+                        type=float,
+                        default=0,
+                        help=('Guaranteed width of maximum. '
+                              'Defaults to 0.0.'))
     parser.add_argument('-m', '--modify',
                         action='store_true',
                         help='Change horizontal geometry.')
@@ -138,6 +144,7 @@ def get_carpet(mline, distance, step=None):
         length = 2
     else:
         # Length must be uneven, and no less than 2 * distance / step + 1
+        # Take a look at np.around() (round to even values)!
         length = 2 * np.round(0.5 + distance / step) + 1
     offsets_1d = np.mgrid[-distance:distance:length * 1j]
     # Normalize and rotate the vectors of the linesegments
@@ -271,54 +278,56 @@ class BaseWriter(object):
         self.layer = None
         self.dataset = None
 
-    def _modify(self, points, values, mline):
+    def _modify(self, points, values, mline, step):
         """ Return dictionary of numpy arrays. """
-        # Find indices of hightes points
-        #index = (np.arange(values.shape[0]), values.argmax(1))
-
-        # Proof of concept
-        #mpoints = points[index]
-        #mvalues = values[index]
-
-        cpoints = points[:, 0]
-        cvalues = values[:, 0]
-
-        # Sorting points and values according to projection on mline
-        pars = mline.project(cpoints)
-        ordering = pars.argsort()
-        mpoints = cpoints[ordering]
-        mvalues = cvalues[ordering]
-        
-        
-        from matplotlib.backends import backend_agg
-        from matplotlib import figure
-        from PIL import Image
-        fig = figure.Figure()
-        backend_agg.FigureCanvasAgg(fig)
-        axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-        axes.axis('equal')
-        axes.plot(
-            cpoints[..., 0],
-            cpoints[..., 1],
-            '-r',
+        # First a minimum filter with requested width
+        filtersize = np.round(self.width / step)
+        minimum = values.min()
+        fpoints = ndimage.median_filter(
+            points, size=(1, filtersize, 1),
         )
-        axes.plot(
-            mpoints[..., 0],
-            mpoints[..., 1],
-            '-g',
+        fvalues = ndimage.minimum_filter(
+            values, size=(1, filtersize), mode='constant', cval=minimum,
         )
-        buf, size = axes.figure.canvas.print_to_buffer()
-        Image.fromstring('RGBA', size, buf).show()
-
-
+        # Then find the maximum of this filter
+        index = (np.arange(len(fvalues)), fvalues.argmax(axis=1))
+        mpoints = fpoints[index]
+        mvalues = fvalues[index]
+        
         # Quick 'n dirty way of getting to result dict
-        rlines = np.array([mpoints[1:], mpoints[:-1]]).transpose(1, 0, 2)
+        rlines = np.array([mpoints[:-1], mpoints[1:]]).transpose(1, 0, 2)
         rcenters = mpoints[1:]
         rvalues = mvalues[1:]
 
         return dict(lines=rlines,
                     centers=rcenters,
                     values=rvalues)
+
+        # Sorting points and values according to projection on mline
+        pars = mline.project(cpoints)
+        ordering = pars.argsort()
+        mpoints = cpoints[ordering]
+        mvalues = cvalues[ordering]
+
+        #from matplotlib.backends import backend_agg
+        #from matplotlib import figure
+        #from PIL import Image
+        #fig = figure.Figure()
+        #backend_agg.FigureCanvasAgg(fig)
+        #axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+        ##axes.axis('equal')
+        #axes.plot(
+            #values[0],
+            #'-r',
+        #)
+        #axes.plot(
+            #fvalues[0],
+            #'-g',
+        #)
+        #buf, size = axes.figure.canvas.print_to_buffer()
+        #Image.fromstring('RGBA', size, buf).show()
+
+
 
     def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
@@ -347,7 +356,8 @@ class BaseWriter(object):
         if self.modify:
             result = self._modify(points=carpet_points,
                                   values=carpet_values,
-                                  mline=mline)
+                                  mline=mline,
+                                  step=STEPSIZE)
         else:
             result = dict(lines=pline.lines,
                           centers=pline.centers,
@@ -415,7 +425,7 @@ class CoordinateWriter(BaseWriter):
         geometry = self._convert(source_geometry=feature.geometry())
         new_feature.SetGeometry(geometry)
         self.layer.CreateFeature(new_feature)
-        #self.indicator.update()
+        self.indicator.update()
 
     def add(self, path, **kwargs):
         """ Convert dataset at path. """
@@ -483,7 +493,8 @@ class AttributeWriter(BaseWriter):
         dataset = None
 
 
-def addheight(source_path, target_path, overwrite, distance, modify, average,
+def addheight(source_path, target_path, overwrite,
+              distance, width, modify, average, 
               layout, elevation_attribute, feature_id_attribute):
     """
     Take linestrings from source and create target with height added.
@@ -497,6 +508,7 @@ def addheight(source_path, target_path, overwrite, distance, modify, average,
     Writer = CoordinateWriter if layout == LAYOUT_POINT else AttributeWriter
     with Writer(target_path,
                 distance=distance,
+                width=width,
                 modify=modify,
                 average=average,
                 elevation_attribute=elevation_attribute,
