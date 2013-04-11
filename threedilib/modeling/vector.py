@@ -73,6 +73,8 @@ class MagicLine(object):
     def _pixelize_to_parameters(self, size):
         """
         Return array of parameters where pixel boundary intersects self.
+
+        Size is the size of the (square) pixel.
         """
         extent = np.array([self.points.min(0), self.points.max(0)])
         parameters = []
@@ -125,4 +127,40 @@ class MagicLine(object):
 
         Find closest projection of each point on the magic line.
         """
-        pass
+        # Calculate projection of all points on all lines
+        # See snapline for how to 
+        # return parameters.
+        
+        # Some reshapings
+        a = self.p.reshape(1, -1, 2)
+        b = self.q.reshape(1, -1, 2)
+        c = points.reshape(-1, 1, 2)
+        # Some vectors
+        vab = b - a
+        vac = c - a
+        vabn = normalize(vab[0]).reshape(1, -1, 2)
+
+        # Perform dot product and calculations
+        dotprod = np.sum(vac * vabn, axis=2).reshape(len(points), -1 , 1)
+        vabl = magnitude(vab[0]).reshape(1, -1, 1)
+        lparameters = (dotprod / vabl)[..., 0].round(10)  # What round to take?
+        
+        # Add integer to parameter and mask outside line
+        gparameters = np.ma.array(
+            np.ma.array(lparameters + np.arange(len(self.vectors)).reshape(1, -1)),
+            mask=np.logical_or(lparameters < 0, lparameters > 1),
+        )
+
+        # Calculate distances and sort accordingly
+        projections = dotprod * vabn + a
+        distances = np.ma.array(
+            magnitude((c - projections).reshape(-1, 2)),
+            mask=gparameters.mask,
+        ).reshape(len(points), -1)
+        closest = gparameters[(np.arange(len(distances)), distances.argmin(1))]
+        
+        if closest.mask.any():
+            raise ValueError('Masked values in projection.')
+
+        return closest.data
+        

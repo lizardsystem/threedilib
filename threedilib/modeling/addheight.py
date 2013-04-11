@@ -124,30 +124,42 @@ def get_dataset(leafno):
     return cache[leafno]
 
 
-def get_carpet(magic_line, distance, step=None):
+def get_carpet(mline, distance, step=None):
     """
     Return MxNx2 numpy array.
 
-    It contains the midpoints of the MagicLine, but perpendicularly
+    It contains the first point of the first line, the centers, and the
+    last point of the last line of the MagicLine, but perpendicularly
     repeated along the normals to the segments of the MagicLine, up to
     distance, with step.
     """
+    # Determine the offsets from the points on the line
     if step is None or step == 0:
         length = 2
     else:
         # Length must be uneven, and no less than 2 * distance / step + 1
         length = 2 * np.round(0.5 + distance / step) + 1
     offsets_1d = np.mgrid[-distance:distance:length * 1j]
-    vectors = vector.normalize(vector.rotate(magic_line.vectors, 270))
-    offsets_2d = vectors.reshape(-1, 1, 2) * offsets_1d.reshape(1, -1, 1)
-    return offsets_2d + magic_line.centers.reshape(-1, 1, 2)
+    # Normalize and rotate the vectors of the linesegments
+    vectors = vector.normalize(vector.rotate(mline.vectors, 270))
+
+    # Extend vectors and centers.
+    evectors = np.concatenate([[vectors[0]], vectors[:], [vectors[-1]]])
+    ecenters = np.concatenate([[mline.points[0]],
+                               mline.centers[:],
+                               [mline.points[-1]]])
+
+    offsets_2d = evectors.reshape(-1, 1, 2) * offsets_1d.reshape(1, -1, 1)
+    points = offsets_2d + ecenters.reshape(-1, 1, 2)
+
+    return points
 
 
-def get_leafnos(magic_line, distance):
+def get_leafnos(mline, distance):
     """ Return the leafnos for the outermost lines of the carpet. """
     # Convert magic line to carpet to linestring around carpet
-    pixel_line = magic_line.pixelize(size=PIXELSIZE, endsonly=True)
-    carpet_points = get_carpet(magic_line=pixel_line,
+    pline = mline.pixelize(size=PIXELSIZE, endsonly=True)
+    carpet_points = get_carpet(mline=pline,
                                distance=distance)
     # Create multipoint containing outermost lines
     line1, line2 = carpet_points[:, np.array([0, -1])].transpose(1, 0, 2)
@@ -259,14 +271,45 @@ class BaseWriter(object):
         self.layer = None
         self.dataset = None
 
-    def _modify(self, points, values):
-        """ Return a dictionary of lines, centers and values. """
+    def _modify(self, points, values, mline):
+        """ Return dictionary of numpy arrays. """
         # Find indices of hightes points
-        index = (np.arange(values.shape[0]), values.argmax(1))
+        #index = (np.arange(values.shape[0]), values.argmax(1))
 
         # Proof of concept
-        mpoints = points[index]
-        mvalues = values[index]
+        #mpoints = points[index]
+        #mvalues = values[index]
+
+        cpoints = points[:, 0]
+        cvalues = values[:, 0]
+
+        # Sorting points and values according to projection on mline
+        pars = mline.project(cpoints)
+        ordering = pars.argsort()
+        mpoints = cpoints[ordering]
+        mvalues = cvalues[ordering]
+        
+        
+        from matplotlib.backends import backend_agg
+        from matplotlib import figure
+        from PIL import Image
+        fig = figure.Figure()
+        backend_agg.FigureCanvasAgg(fig)
+        axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+        axes.axis('equal')
+        axes.plot(
+            cpoints[..., 0],
+            cpoints[..., 1],
+            '-r',
+        )
+        axes.plot(
+            mpoints[..., 0],
+            mpoints[..., 1],
+            '-g',
+        )
+        buf, size = axes.figure.canvas.print_to_buffer()
+        Image.fromstring('RGBA', size, buf).show()
+
 
         # Quick 'n dirty way of getting to result dict
         rlines = np.array([mpoints[1:], mpoints[:-1]]).transpose(1, 0, 2)
@@ -280,12 +323,12 @@ class BaseWriter(object):
     def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
         # Determine the leafnos
-        magic_line = vector.MagicLine(wkb_line_string.GetPoints())
-        leafnos = get_leafnos(magic_line=magic_line, distance=self.distance)
+        mline = vector.MagicLine(wkb_line_string.GetPoints())
+        leafnos = get_leafnos(mline=mline, distance=self.distance)
         # Determine the point and values carpets
-        pixel_line = magic_line.pixelize(size=PIXELSIZE)
+        pline = mline.pixelize(size=PIXELSIZE)
         carpet_points = get_carpet(
-            magic_line=pixel_line,
+            mline=pline,
             distance=self.distance,
             step=STEPSIZE,
         )
@@ -293,6 +336,7 @@ class BaseWriter(object):
             np.empty(carpet_points.shape[:2]),
             mask=True,
         )
+
         # Get the values into the carpet per leafno
         for leafno in leafnos:
             paste_values(carpet_points, carpet_values, leafno)
@@ -301,15 +345,13 @@ class BaseWriter(object):
 
         # Return lines, centers, values
         if self.modify:
-            # Note the original lines are discared.
-            # The resulting lines are slightly shorter
-            # because of how the carpet works.
             result = self._modify(points=carpet_points,
-                                  values=carpet_values)
+                                  values=carpet_values,
+                                  mline=mline)
         else:
-            result = dict(lines=pixel_line.lines,
-                          centers=pixel_line.centers,
-                          values=carpet_values.data.max(1))
+            result = dict(lines=pline.lines,
+                          centers=pline.centers,
+                          values=carpet_values.data[1:-1].max(1))
 
         if self.average:
             return average_result(amount=self.average, **result)
@@ -373,7 +415,7 @@ class CoordinateWriter(BaseWriter):
         geometry = self._convert(source_geometry=feature.geometry())
         new_feature.SetGeometry(geometry)
         self.layer.CreateFeature(new_feature)
-        self.indicator.update()
+        #self.indicator.update()
 
     def add(self, path, **kwargs):
         """ Convert dataset at path. """
