@@ -26,6 +26,16 @@ def line2geometry(line):
     return geometry
 
 
+def polygon2geometry(line):
+    """ Return geometry. """
+    geometry = ogr.Geometry(ogr.wkbPolygon)
+    ring = ogr.Geometry(ogr.wkbLinearRing)
+    for point in line:
+        ring.AddPoint_2D(*map(float, point))
+    geometry.AddGeometry(ring)
+    return geometry
+
+
 def magnitude(vectors):
     """ Return magnitudes. """
     return np.sqrt((vectors ** 2).sum(1))
@@ -127,10 +137,6 @@ class MagicLine(object):
 
         Find closest projection of each point on the magic line.
         """
-        # Calculate projection of all points on all lines
-        # See snapline for how to 
-        # return parameters.
-        
         # Some reshapings
         a = self.p.reshape(1, -1, 2)
         b = self.q.reshape(1, -1, 2)
@@ -141,13 +147,14 @@ class MagicLine(object):
         vabn = normalize(vab[0]).reshape(1, -1, 2)
 
         # Perform dot product and calculations
-        dotprod = np.sum(vac * vabn, axis=2).reshape(len(points), -1 , 1)
+        dotprod = np.sum(vac * vabn, axis=2).reshape(len(points), -1, 1)
         vabl = magnitude(vab[0]).reshape(1, -1, 1)
         lparameters = (dotprod / vabl)[..., 0].round(5)  # What round to take?
-        
+
         # Add integer to parameter and mask outside line
         gparameters = np.ma.array(
-            np.array(lparameters + np.arange(len(self.vectors)).reshape(1, -1)),
+            np.array(lparameters +
+                     np.arange(len(self.vectors)).reshape(1, -1)),
             mask=np.logical_or(lparameters < 0, lparameters > 1),
         )
 
@@ -158,9 +165,8 @@ class MagicLine(object):
             mask=gparameters.mask,
         ).reshape(len(points), -1)
         closest = gparameters[(np.arange(len(distances)), distances.argmin(1))]
-        
+
         if closest.mask.any():
             raise ValueError('Masked values in projection.')
 
         return closest.data
-        

@@ -166,11 +166,28 @@ def get_leafnos(mline, distance):
     """ Return the leafnos for the outermost lines of the carpet. """
     # Convert magic line to carpet to linestring around carpet
     pline = mline.pixelize(size=PIXELSIZE, endsonly=True)
-    carpet_points = get_carpet(mline=pline,
-                               distance=distance)
-    # Create multipoint containing outermost lines
-    line1, line2 = carpet_points[:, np.array([0, -1])].transpose(1, 0, 2)
-    linestring = vector.line2geometry(np.vstack([line1, line2[::-1]]))
+    points = get_carpet(mline=pline,
+                        distance=distance)
+    # Create polygon containing outermost lines
+    linering = np.vstack([
+        points[:, 0], points[::-1, -1], points[:1, 0]
+    ])
+
+    #from matplotlib.backends import backend_agg
+    #from matplotlib import figure
+    #from PIL import Image
+    #fig = figure.Figure()
+    #backend_agg.FigureCanvasAgg(fig)
+    #axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    #axes.axis('equal')
+    #axes.plot(
+        #linering[:, 0], linering[:, 1],
+        #'-r',
+    #)
+    #buf, size = axes.figure.canvas.print_to_buffer()
+    #Image.fromstring('RGBA', size, buf).show()
+
+    linestring = vector.polygon2geometry(linering)
     # Query the index with it
     index = get_index()
     index.SetSpatialFilter(linestring)
@@ -304,7 +321,7 @@ class BaseWriter(object):
         ordering = parameters.argsort()
         spoints = mpoints[ordering]
         svalues = mvalues[ordering]
-        
+
         # Quick 'n dirty way of getting to result dict
         rlines = np.array([spoints[:-1], spoints[1:]]).transpose(1, 0, 2)
         rcenters = spoints[1:]
@@ -314,32 +331,12 @@ class BaseWriter(object):
                     centers=rcenters,
                     values=rvalues)
 
-
-        #from matplotlib.backends import backend_agg
-        #from matplotlib import figure
-        #from PIL import Image
-        #fig = figure.Figure()
-        #backend_agg.FigureCanvasAgg(fig)
-        #axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-        ##axes.axis('equal')
-        #axes.plot(
-            #values[0],
-            #'-r',
-        #)
-        #axes.plot(
-            #fvalues[0],
-            #'-g',
-        #)
-        #buf, size = axes.figure.canvas.print_to_buffer()
-        #Image.fromstring('RGBA', size, buf).show()
-
-
-
     def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
         # Determine the leafnos
         mline = vector.MagicLine(wkb_line_string.GetPoints())
         leafnos = get_leafnos(mline=mline, distance=self.distance)
+
         # Determine the point and values carpets
         pline = mline.pixelize(size=PIXELSIZE)
         carpet_points = get_carpet(
@@ -501,7 +498,7 @@ class AttributeWriter(BaseWriter):
 
 
 def addheight(source_path, target_path, overwrite,
-              distance, width, modify, average, 
+              distance, width, modify, average,
               layout, elevation_attribute, feature_id_attribute):
     """
     Take linestrings from source and create target with height added.
