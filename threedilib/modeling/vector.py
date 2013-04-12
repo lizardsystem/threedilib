@@ -143,7 +143,7 @@ class MagicLine(object):
         # Perform dot product and calculations
         dotprod = np.sum(vac * vabn, axis=2).reshape(len(points), -1 , 1)
         vabl = magnitude(vab[0]).reshape(1, -1, 1)
-        lparameters = (dotprod / vabl)[..., 0].round(10)  # What round to take?
+        lparameters = (dotprod / vabl)[..., 0].round(5)  # What round to take?
         
         # Add integer to parameter and mask outside line
         gparameters = np.ma.array(
