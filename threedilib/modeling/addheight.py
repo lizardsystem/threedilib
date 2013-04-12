@@ -172,21 +172,6 @@ def get_leafnos(mline, distance):
     linering = np.vstack([
         points[:, 0], points[::-1, -1], points[:1, 0]
     ])
-
-    #from matplotlib.backends import backend_agg
-    #from matplotlib import figure
-    #from PIL import Image
-    #fig = figure.Figure()
-    #backend_agg.FigureCanvasAgg(fig)
-    #axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    #axes.axis('equal')
-    #axes.plot(
-        #linering[:, 0], linering[:, 1],
-        #'-r',
-    #)
-    #buf, size = axes.figure.canvas.print_to_buffer()
-    #Image.fromstring('RGBA', size, buf).show()
-
     linestring = vector.polygon2geometry(linering)
     # Query the index with it
     index = get_index()
@@ -248,7 +233,10 @@ def average_result(amount, lines, centers, values):
 class Dataset(object):
     def __init__(self, dataset):
         """ Initialize from gdal dataset. """
-        self.geotransform = dataset.GetGeoTransform()
+        # There exist datasets with slightly offset origins.
+        # Here origin is rounded to whole meters.
+        a, b, c, d, e, f = dataset.GetGeoTransform()
+        self.geotransform = round(a), b, c, round(d), e, f
         self.size = dataset.RasterXSize, dataset.RasterYSize
         self.data = dataset.ReadAsArray()
 
@@ -339,32 +327,53 @@ class BaseWriter(object):
 
         # Determine the point and values carpets
         pline = mline.pixelize(size=PIXELSIZE)
-        carpet_points = get_carpet(
+        points = get_carpet(
             mline=pline,
             distance=self.distance,
             step=STEPSIZE,
         )
-        carpet_values = np.ma.array(
-            np.empty(carpet_points.shape[:2]),
+        values = np.ma.array(
+            np.empty(points.shape[:2]),
             mask=True,
         )
 
         # Get the values into the carpet per leafno
         for leafno in leafnos:
-            paste_values(carpet_points, carpet_values, leafno)
-        if carpet_values.mask.any():
+            paste_values(points, values, leafno)
+
+        # Debugging plotcode
+        #from matplotlib.backends import backend_agg
+        #from matplotlib import figure
+        #from PIL import Image
+        #fig = figure.Figure()
+        #backend_agg.FigureCanvasAgg(fig)
+        #axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+        #axes.axis('equal')
+        #axes.plot(
+            #points[~values.mask][..., 0], points[~values.mask][..., 1],
+            #'.g',
+        #)
+        #axes.plot(
+            #points[values.mask][..., 0], points[values.mask][..., 1],
+            #'.r',
+        #)
+        #buf, size = axes.figure.canvas.print_to_buffer()
+        #Image.fromstring('RGBA', size, buf).show()
+        # End debugging plotcode
+
+        if values.mask.any():
             raise ValueError('Masked values remaining after filling!')
 
         # Return lines, centers, values
         if self.modify:
-            result = self._modify(points=carpet_points,
-                                  values=carpet_values,
+            result = self._modify(points=points,
+                                  values=values,
                                   mline=mline,
                                   step=STEPSIZE)
         else:
             result = dict(lines=pline.lines,
                           centers=pline.centers,
-                          values=carpet_values.data[1:-1].max(1))
+                          values=values.data[1:-1].max(1))
 
         if self.average:
             return average_result(amount=self.average, **result)
