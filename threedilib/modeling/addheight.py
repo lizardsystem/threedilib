@@ -448,7 +448,11 @@ class CoordinateWriter(BaseWriter):
         for layer in dataset:
             self._add_layer(layer)
             for feature in layer:
-                self._add_feature(feature)
+                try:
+                    self._add_feature(feature)
+                except:
+                    with open('errors.txt', 'a') as errorfile:
+                        errorfile.write(unicode(feature.items()) + '\n')
         dataset = None
 
 
@@ -502,7 +506,11 @@ class AttributeWriter(BaseWriter):
             self._add_layer(layer)
             self._add_fields()
             for feature_id, feature in enumerate(layer):
-                self._add_feature(feature_id=feature_id, feature=feature)
+                try:
+                    self._add_feature(feature_id=feature_id, feature=feature)
+                except:
+                    with open('errors.txt', 'a') as errorfile:
+                        errorfile.write(unicode(feature.items()) + '\n')
         dataset = None
 
 
