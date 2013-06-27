@@ -43,6 +43,9 @@ LAYOUT_LINE = 'line'
 PIXELSIZE = 0.5  # AHN2
 STEPSIZE = 0.5  # For looking perpendicular to line.
 
+LINESTRINGS = ogr.wkbLineString, ogr.wkbLineString25D
+MULTILINESTRINGS = ogr.wkbMultiLineString, ogr.wkbMultiLineString25D
+
 SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
 
 
@@ -322,7 +325,7 @@ class BaseWriter(object):
     def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
         # Determine the leafnos
-        mline = vector.MagicLine(wkb_line_string.GetPoints())
+        mline = vector.MagicLine(np.array(wkb_line_string.GetPoints())[:,:2])
         leafnos = get_leafnos(mline=mline, distance=self.distance)
 
         # Determine the point and values carpets
@@ -416,15 +419,18 @@ class CoordinateWriter(BaseWriter):
         Return converted linestring or multiline.
         """
         geometry_type = source_geometry.GetGeometryType()
-        if geometry_type == ogr.wkbLineString:
+        if geometry_type in LINESTRINGS:
             return self._convert_wkb_line_string(source_geometry)
-        if geometry_type == ogr.wkbMultiLineString:
+        if geometry_type in MULTILINESTRINGS:
             target_geometry = ogr.Geometry(source_geometry.GetGeometryType())
             for source_wkb_line_string in source_geometry:
                 target_geometry.AddGeometry(
                     self._convert_wkb_line_string(source_wkb_line_string),
                 )
             return target_geometry
+        raise ValueError('Unexpected geometry type: {}'.format(
+                source_geometry.GetGeometryName(),
+        ))
 
     def _add_feature(self, feature):
         """ Add converted feature. """
@@ -450,8 +456,9 @@ class CoordinateWriter(BaseWriter):
             for feature in layer:
                 try:
                     self._add_feature(feature)
-                except:
+                except Exception as e:
                     with open('errors.txt', 'a') as errorfile:
+                        errorfile.write(unicode(e) + '\n')
                         errorfile.write(unicode(feature.items()) + '\n')
         dataset = None
 
@@ -463,10 +470,14 @@ class AttributeWriter(BaseWriter):
         Return generator of (geometry, height) tuples.
         """
         geometry_type = source_geometry.GetGeometryType()
-        if geometry_type == ogr.wkbLineString:
+        if geometry_type in LINESTRINGS:
             source_wkb_line_strings = [source_geometry]
-        elif geometry_type == ogr.wkbMultiLineString:
+        elif geometry_type in MULTILINESTRINGS:
             source_wkb_line_strings = [line for line in source_geometry]
+        else:
+            raise ValueError('Unexpected geometry type: {}'.format(
+                    source_geometry.GetGeometryName(),
+            ))
         for source_wkb_line_string in source_wkb_line_strings:
             result = self._calculate(wkb_line_string=source_wkb_line_string)
             for line, value in zip(result['lines'], result['values']):
@@ -508,8 +519,9 @@ class AttributeWriter(BaseWriter):
             for feature_id, feature in enumerate(layer):
                 try:
                     self._add_feature(feature_id=feature_id, feature=feature)
-                except:
+                except Exception as e:
                     with open('errors.txt', 'a') as errorfile:
+                        errorfile.write(unicode(e) + '\n')
                         errorfile.write(unicode(feature.items()) + '\n')
         dataset = None
 
