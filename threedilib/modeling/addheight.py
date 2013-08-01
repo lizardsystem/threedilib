@@ -24,7 +24,7 @@ DESCRIPTION = """
     embedded elevation from an elevation map.
 
     Target shapefile can have two layouts: A 'point' layout where the
-    elevation is stored in the third coordinate of a 3D linstring, and
+    elevation is stored in the third coordinate of a 3D linestring, and
     a 'line' layout where a separate feature is created in the target
     shapefile for each segment of each feature in the source shapefile,
     with two extra attributes compared to the original shapefile, one
@@ -70,8 +70,9 @@ def get_parser():
                         default=0,
                         help=('Distance (half-width) to look '
                               'perpendicular to the segments to '
-                              'find the highest points on the '
-                              'elevation map. Defaults to 0.0.'))
+                              'find the highest (or lowest, with '
+                              ' --inverse) points on the elevation '
+                              ' map. Defaults to 0.0.'))
     parser.add_argument('-w', '--width',
                         metavar='WIDTH',
                         type=float,
@@ -99,6 +100,10 @@ def get_parser():
                         metavar='ELEVATION_ATTRIBUTE',
                         default='_elevation',
                         help='Attribute name for the elevation.')
+    parser.add_argument('-i', '--inverse',
+                        #metavar='INVERSE',
+                        action='store_true',
+                        help='Look for lowest points instead of highest.')
     return parser
 
 
@@ -288,22 +293,32 @@ class BaseWriter(object):
 
     def _modify(self, points, values, mline, step):
         """ Return dictionary of numpy arrays. """
-        # First a minimum filter with requested width
+        # First a minimum or maximum filter with requested width
         filtersize = np.round(self.width / step)
         if filtersize > 0:
-            minimum = values.min()
+            # Choices based on inverse or not
+            cval = values.max() if self.inverse else values.min()
+            if self.inverse:
+                extremum_filter = ndimage.maximum_filter
+            else:
+                extremum_filter = ndimage.minimum_filter
+            # Filtering
             fpoints = ndimage.convolve(
                 points, np.ones((1, filtersize, 1)) / filtersize,
             )  # Moving average for the points
-            fvalues = ndimage.minimum_filter(
-                values, size=(1, filtersize), mode='constant', cval=minimum,
-            )  # Moving minimum for the values
+            fvalues = extremum_filter(
+                values, size=(1, filtersize), mode='constant', cval=cval,
+            )  # Moving extremum for the values
         else:
             fpoints = points
             fvalues = values
 
-        # Find the maximum per filtered line
-        index = (np.arange(len(fvalues)), fvalues.argmax(axis=1))
+        if self.inverse:
+            # Find the minimum per filtered line
+            index = (np.arange(len(fvalues)), fvalues.argmin(axis=1))
+        else:
+            # Find the maximum per filtered line
+            index = (np.arange(len(fvalues)), fvalues.argmax(axis=1))
         mpoints = fpoints[index]
         mvalues = fvalues[index]
 
@@ -527,7 +542,7 @@ class AttributeWriter(BaseWriter):
 
 
 def addheight(source_path, target_path, overwrite,
-              distance, width, modify, average,
+              distance, width, modify, average, inverse,
               layout, elevation_attribute, feature_id_attribute):
     """
     Take linestrings from source and create target with height added.
@@ -547,6 +562,7 @@ def addheight(source_path, target_path, overwrite,
                 width=width,
                 modify=modify,
                 average=average,
+                inverse=inverse,
                 elevation_attribute=elevation_attribute,
                 feature_id_attribute=feature_id_attribute) as writer:
         writer.add(source_path)
