@@ -9,8 +9,9 @@ long_description = '\n\n'.join([
     ])
 
 install_requires = [
+    'gislib',
+    'netCDF4',
     'setuptools',
-    'lizard_raster',
     'Pillow',
     ],
 
@@ -40,6 +41,6 @@ setup(name='threedilib',
               'modeling_convert = threedilib.modeling.convert:main',
               'modeling_infiltration = threedilib.modeling.infiltration:main',
               'modeling_snap = threedilib.modeling.snap:main',
-              'pointcloud_sync = threedilib.pointcloud.sync:main',
+              'subgrid_extract = threedilib.subgrid.extract:main',
           ]},
       )

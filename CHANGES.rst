@@ -5,7 +5,9 @@ Changelog of threedilib
 0.7.4 (unreleased)
 ------------------
 
-- Nothing changed yet.
+- Remove django and old pointcloud code.
+
+- Add subgrid extract tool.
 
 
 0.7.3 (2013-03-06)
