@@ -2,8 +2,8 @@ Changelog of threedilib
 ===================================================
 
 
-0.7.4 (unreleased)
-------------------
+0.8 (2013-09-05)
+----------------
 
 - Remove django and old pointcloud code.
 
