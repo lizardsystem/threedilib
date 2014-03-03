@@ -1,5 +1,11 @@
 # (c) Nelen & Schuurmans.  GPL licensed, see LICENSE.rst.
 # -*- coding: utf-8 -*-
+"""
+Convert shapefiles with z coordinates. Choose from the following formats:
+'inp' to create an inp file, 'img' to create a png with a plot of the
+feature, or 'shp' to output a shapefile with the average height of a
+feature stored in an extra attribute.
+"""
 
 from __future__ import print_function
 from __future__ import unicode_literals
@@ -14,14 +20,17 @@ import tempfile
 
 from matplotlib.backends import backend_agg
 from matplotlib import figure
+from osgeo import gdal
 from osgeo import ogr
 from PIL import Image
+
+ogr.UseExceptions()
 
 
 def get_parser():
     """ Return argument parser. """
     parser = argparse.ArgumentParser(
-        description='Convert shapefiles with Z components.',
+        description=__doc__,
     )
     parser.add_argument('source_path',
                         metavar='SOURCE',
@@ -31,8 +40,8 @@ def get_parser():
                         help=('Path to target file.'))
     parser.add_argument('-of', '--output-format',
                         metavar='FORMAT',
-                        choices=['inp', 'img'],
-                        default='inp',
+                        choices=['inp', 'img', 'shp'],
+                        default='shp',
                         help=("Input file 'inp' or image 'img'"))
     return parser
 
@@ -158,16 +167,78 @@ class ImageWriter(object):
         pass
 
 
+class ShapefileWriter(object):
+    """ Writer for shapefiles. """
+    ATTRIBUTE = b'kruinhoogt'
+
+    def __init__(self, path):
+        self.count = 0
+        self.path = path
+        self.datasource = None
+        self.layer = None
+
+    def __enter__(self):
+        return self
+
+    def create_datasource(self, feature):
+        """ Create a datasource based on feature. """
+        root, ext = os.path.splitext(os.path.basename(self.path))
+        driver = ogr.GetDriverByName(b'ESRI Shapefile')
+        datasource = driver.CreateDataSource(self.path)
+        layer = datasource.CreateLayer(root)
+        for i in range(feature.GetFieldCount()):
+            layer.CreateField(feature.GetFieldDefnRef(i))
+        field_defn = ogr.FieldDefn(self.ATTRIBUTE, ogr.OFTReal)
+        layer.CreateField(field_defn)
+
+        self.datasource = datasource
+        self.layer = layer
+
+    def add_feature(self, feature):
+        """ Currently saves every feature in a separate image. """
+        if self.layer is None:
+            self.create_datasource(feature)
+        layer_defn = self.layer.GetLayerDefn()
+
+        # elevation
+        geometry = feature.geometry().Clone()
+        geometry_type = geometry.GetGeometryType()
+        if geometry_type == ogr.wkbLineString25D:
+            elevation = min([p[2] for p in geometry.GetPoints()])
+        else:
+            # multilinestring
+            elevation = min([p[2]
+                             for g in geometry
+                             for p in g.GetPoints()])
+        geometry.FlattenTo2D()
+
+        new_feature = ogr.Feature(layer_defn)
+        new_feature.SetGeometry(geometry)
+        for k, v in feature.items().items():
+            new_feature[k] = v
+        new_feature[self.ATTRIBUTE] = elevation
+        self.layer.CreateFeature(new_feature)
+
+    def __exit__(self, type, value, traceback):
+        pass
+
+
 def convert(source_path, target_path, output_format):
     """ Convert shapefile to inp file."""
 
     source_dataset = ogr.Open(str(source_path))
 
-    writers = dict(inp=InputFileWriter, img=ImageWriter)
+    writers = dict(
+        inp=InputFileWriter,
+        img=ImageWriter,
+        shp=ShapefileWriter,
+    )
     with writers[output_format](target_path) as writer:
         for source_layer in source_dataset:
-            for source_feature in source_layer:
+            total = source_layer.GetFeatureCount()
+            for count, source_feature in enumerate(source_layer, 1):
                 writer.add_feature(source_feature)
+                gdal.TermProgress_nocb(count / total)
 
 
 def main():
