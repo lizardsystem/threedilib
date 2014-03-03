@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Convert shapefiles with z coordinates. Choose from the following formats:
-'inp' to create an inp file, 'img' to create a png with a plot of the
+'inp' to create an inp file, 'img' to create an image with a plot of the
 feature, or 'shp' to output a shapefile with the average height of a
 feature stored in an extra attribute.
 """
@@ -42,7 +42,7 @@ def get_parser():
                         metavar='FORMAT',
                         choices=['inp', 'img', 'shp'],
                         default='shp',
-                        help=("Input file 'inp' or image 'img'"))
+                        help=("Path to output."))
     return parser
 
 
