@@ -131,7 +131,11 @@ def get_dataset(leafno):
 
     # Add to cache and return.
     unit = SHEET.match(leafno).group('unit')
-    path = os.path.join(config.AHN_PATH, unit, leafno + '.tif')
+    try:
+        prefix = config.AHN_PREFIX
+    except AttributeError:
+        prefix = 'i'
+    path = os.path.join(config.AHN_PATH, unit, prefix + leafno[1:] + '.tif')
     dataset = gdal.Open(path)
     cache[leafno] = Dataset(dataset)
     dataset = None
@@ -340,7 +344,7 @@ class BaseWriter(object):
     def _calculate(self, wkb_line_string):
         """ Return lines, points, values tuple of numpy arrays. """
         # Determine the leafnos
-        mline = vector.MagicLine(np.array(wkb_line_string.GetPoints())[:,:2])
+        mline = vector.MagicLine(np.array(wkb_line_string.GetPoints())[:, :2])
         leafnos = get_leafnos(mline=mline, distance=self.distance)
 
         # Determine the point and values carpets
@@ -444,7 +448,7 @@ class CoordinateWriter(BaseWriter):
                 )
             return target_geometry
         raise ValueError('Unexpected geometry type: {}'.format(
-                source_geometry.GetGeometryName(),
+            source_geometry.GetGeometryName(),
         ))
 
     def _add_feature(self, feature):
@@ -491,7 +495,7 @@ class AttributeWriter(BaseWriter):
             source_wkb_line_strings = [line for line in source_geometry]
         else:
             raise ValueError('Unexpected geometry type: {}'.format(
-                    source_geometry.GetGeometryName(),
+                source_geometry.GetGeometryName(),
             ))
         for source_wkb_line_string in source_wkb_line_strings:
             result = self._calculate(wkb_line_string=source_wkb_line_string)
