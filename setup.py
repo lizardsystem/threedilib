@@ -9,7 +9,7 @@ long_description = '\n\n'.join([
     ])
 
 install_requires = [
-    'gislib',
+    'gislib==0.1.1',
     'netCDF4',
     'setuptools',
     'Pillow',
