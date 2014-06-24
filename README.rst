@@ -13,6 +13,13 @@ Some of the tools need separate configuration. The easiest way to do
 this is to create a file localconfig.py next to threedilib/config.py,
 with overrides for variables defined in threedilib/config.py.
 
+To install with pip in a virtualenv::
+
+    $ virtualenv threedilib --system-site-packages
+    $ . threedilib/bin/activate
+    $ pip install git+ssh://git@github.com/lizardsystem/threedilib.git --index=http://packages.lizardsystem.nl
+
+
 Schematisation tools
 --------------------
 The following commands are available::
