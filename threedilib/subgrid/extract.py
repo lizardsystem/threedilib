@@ -29,12 +29,15 @@ def get_parser():
     )
     parser.add_argument('sourcepath',
                         metavar='SOURCE',
-                        help="Path to subgrid netCDF file.")
+                        help='Path to subgrid netCDF file.')
     parser.add_argument('-v', '--variables',
                         nargs='+',
                         default=['s1', 'dep'],
                         metavar='VARIABLES')
-    parser.add_argument('-t', '--timestep', metavar='TIMESTEP', type=int)
+    parser.add_argument('-t', '--timestep',
+                        metavar='TIMESTEP',
+                        type=int,
+                        help='Index to timestep.')
     return parser
 
 
