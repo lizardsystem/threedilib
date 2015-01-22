@@ -65,15 +65,17 @@ class SubgridExtractor(object):
         """ Read variable at timestep, save as asc. """
         ncvariable = self.dsnetcdf.variables[variable]
         if timestep is None:
-            print('Getting maximum value of {}.'.format(
-                variable,
-            ))
-            self.array1d[0:-1] = ncvariable[:].max(0).filled(self.nodata)
+            print('Getting maximum value of {}.'.format(variable))
+            values = ncvariable[:].max(0)
         else:
-            print('Getting value of {} at {}.'.format(
-                variable, timestep,
-            ))
-            self.array1d[0:-1] = ncvariable[:][timestep].filled(self.nodata)
+            print('Getting value of {} at {}.'.format(variable, timestep))
+            values = ncvariable[:][timestep]
+
+        # paste
+        if np.ma.isMaskedArray(values):
+            self.array1d[0: -1] = values.filled(self.nodata)
+        else:
+            self.array1d[0: -1] = values
 
         # Combine arrays
         result = self.array1d[self.array2d]
