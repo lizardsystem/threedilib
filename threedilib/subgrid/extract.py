@@ -13,10 +13,10 @@ import os
 
 from netCDF4 import Dataset
 from osgeo import gdal
-from osgeo import gdal_array
 
 import numpy as np
 
+from threedilib.subgrid import datasets
 from threedilib.subgrid import quads
 
 gdal.UseExceptions()
@@ -46,14 +46,14 @@ class SubgridExtractor(object):
 
     def __enter__(self):
         """ Init quads and arrays. """
-        self.driver = gdal.GetDriverByName(b'aaigrid')
+        self.driver = gdal.GetDriverByName(b'gtiff')
         self.nodata = -999
 
         self.dsnetcdf = Dataset(self.sourcepath)
         self.dsquads = quads.get_dataset(self.sourcepath)
 
         length = self.dsnetcdf.variables['s1'].shape[1]
-        self.array1d = self.nodata * np.ones(1 + length)
+        self.array1d = self.nodata * np.ones(1 + length, dtype='f4')
         self.array2d = self.dsquads.ReadAsArray()
         return self
 
@@ -62,7 +62,7 @@ class SubgridExtractor(object):
         self.dsnetcdf.close()
 
     def save(self, variable, timestep, targetpath):
-        """ Read variable at timestep, save as asc. """
+        """ Read variable at timestep, save as tif. """
         ncvariable = self.dsnetcdf.variables[variable]
         if timestep is None:
             print('Getting maximum value of {}.'.format(variable))
@@ -80,15 +80,16 @@ class SubgridExtractor(object):
         # Combine arrays
         result = self.array1d[self.array2d]
 
-        # Create asciifile
-        dsresult = gdal_array.OpenArray(result)
-        dsresult.SetGeoTransform(self.dsquads.GetGeoTransform())
-        dsresult.GetRasterBand(1).SetNoDataValue(self.nodata)
-        self.driver.CreateCopy(
-            targetpath,
-            dsresult,
-            options=[b'DECIMAL_PRECISION=3']
-        )
+        # Create tif
+        kwargs = {'array': result[np.newaxis, ...],
+                  'no_data_value': self.nodata,
+                  'geo_transform': self.dsquads.GetGeoTransform()}
+        with datasets.Dataset(**kwargs) as dsresult:
+            self.driver.CreateCopy(
+                targetpath,
+                dsresult,
+                options=['compress=deflate'],
+            )
 
 
 def command(sourcepath, variables, timestep=None):
@@ -96,7 +97,7 @@ def command(sourcepath, variables, timestep=None):
     with SubgridExtractor(sourcepath) as extractor:
         for variable in variables:
             root, ext = os.path.splitext(sourcepath)
-            targetpath = '{root}_{variable}_{timestep}.asc'.format(
+            targetpath = '{root}_{variable}_{timestep}.tif'.format(
                 root=root,
                 variable=variable,
                 timestep='max' if timestep is None else timestep,
