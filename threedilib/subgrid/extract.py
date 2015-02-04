@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 # (c) Nelen & Schuurmans.  GPL licensed, see LICENSE.rst.
 
-# -*- coding: utf-8 -*-
-
 from __future__ import print_function
 from __future__ import unicode_literals
 from __future__ import absolute_import
 from __future__ import division
 
 import argparse
+import logging
 import os
+import sys
 
 from netCDF4 import Dataset
 from osgeo import gdal
@@ -20,6 +20,8 @@ from threedilib.subgrid import datasets
 from threedilib.subgrid import quads
 
 gdal.UseExceptions()
+
+logger = logging.getLogger(__name__)
 
 
 def get_parser():
@@ -86,6 +88,7 @@ class SubgridExtractor(object):
         # Create tif
         kwargs = {'array': result[np.newaxis, ...],
                   'no_data_value': self.nodata,
+                  'projection': self.dsquads.GetProjection(),
                   'geo_transform': self.dsquads.GetGeoTransform()}
         with datasets.Dataset(**kwargs) as dsresult:
             self.driver.CreateCopy(
@@ -112,4 +115,13 @@ def command(sourcepath, variables, timestep=None):
 
 def main():
     """ Call command with args from parser. """
-    command(**vars(get_parser().parse_args()))
+    kwargs = vars(get_parser().parse_args())
+
+    logging.basicConfig(stream=sys.stderr,
+                        level=logging.DEBUG,
+                        format='%(message)s')
+
+    try:
+        return command(**kwargs)
+    except:
+        logger.exception('An exception has occurred.')
