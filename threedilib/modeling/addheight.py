@@ -46,7 +46,7 @@ STEPSIZE = 0.5  # For looking perpendicular to line.
 LINESTRINGS = ogr.wkbLineString, ogr.wkbLineString25D
 MULTILINESTRINGS = ogr.wkbMultiLineString, ogr.wkbMultiLineString25D
 
-SHEET = re.compile('^i(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
+SHEET = re.compile('^(?P<unit>[0-9]{2}[a-z])[a-z][0-9]_[0-9]{2}$')
 
 
 def get_parser():
@@ -135,7 +135,7 @@ def get_dataset(leafno):
         prefix = config.AHN_PREFIX
     except AttributeError:
         prefix = 'i'
-    path = os.path.join(config.AHN_PATH, unit, prefix + leafno[1:] + '.tif')
+    path = os.path.join(config.AHN_PATH, unit, prefix + leafno + '.tif')
     dataset = gdal.Open(path)
     cache[leafno] = Dataset(dataset)
     dataset = None
